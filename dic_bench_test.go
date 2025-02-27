@@ -8,7 +8,7 @@ import (
 
 // go test -bench=.
 
-var iterations int = 1000000000
+var iterations int = 1000000
 
 func BenchmarkTransientRetreive(b *testing.B) {
 	initial := 1
