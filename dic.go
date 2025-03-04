@@ -3,12 +3,18 @@ package ioc
 import (
 	"log"
 	"reflect"
+	"sync"
 )
 
 type Dic struct {
-	services   *map[any]Service
-	singletons *map[any]any
-	scoped     map[any]any
+	serviceResiterMutex *sync.Mutex
+	services            *map[any]Service
+	// single mutex is used instead of the map because this is unnecesary optimization which does not optimize for this use case
+	singletonCreateMutex *sync.Mutex
+	singletons           *map[any]any
+	// single mutex is used instead of the map because this is unnecesary optimization which does not optimize for this use case
+	scopedCreateMutex *sync.Mutex
+	scoped            map[any]any
 }
 
 func typeKey[T any]() any {
@@ -26,15 +32,25 @@ func Get[T any](c Dic) T {
 	case singleton:
 		existing, ok := (*c.singletons)[key]
 		if !ok {
-			existing = service.creator(c)
-			(*c.singletons)[key] = existing
+			c.singletonCreateMutex.Lock()
+			existing, ok = (*c.singletons)[key]
+			if !ok {
+				existing = service.creator(c)
+				(*c.singletons)[key] = existing
+			}
+			c.singletonCreateMutex.Unlock()
 		}
 		return existing.(T)
 	case scoped:
 		existing, ok := c.scoped[key]
 		if !ok {
-			existing = service.creator(c)
-			c.scoped[key] = existing
+			c.scopedCreateMutex.Lock()
+			existing, ok = c.scoped[key]
+			if !ok {
+				existing = service.creator(c)
+				c.scoped[key] = existing
+			}
+			c.scopedCreateMutex.Unlock()
 		}
 		return existing.(T)
 	case transient:
@@ -46,13 +62,18 @@ func Get[T any](c Dic) T {
 
 func Scope(c Dic) Dic {
 	return Dic{
-		services:   c.services,
-		singletons: c.singletons,
-		scoped:     map[any]any{},
+		serviceResiterMutex:  c.serviceResiterMutex,
+		services:             c.services,
+		singletonCreateMutex: c.singletonCreateMutex,
+		singletons:           c.singletons,
+		scopedCreateMutex:    &sync.Mutex{},
+		scoped:               map[any]any{},
 	}
 }
 
 func RegisterSingleton[T any](c Dic, creator func(Dic) T) {
+	c.serviceResiterMutex.Lock()
+	defer c.serviceResiterMutex.Unlock()
 	key := typeKey[T]()
 	if _, ok := (*c.services)[key]; ok {
 		var t T
@@ -63,6 +84,8 @@ func RegisterSingleton[T any](c Dic, creator func(Dic) T) {
 }
 
 func RegisterScoped[T any](c Dic, creator func(Dic) T) {
+	c.serviceResiterMutex.Lock()
+	defer c.serviceResiterMutex.Unlock()
 	key := typeKey[T]()
 	if _, ok := (*c.services)[key]; ok {
 		var t T
@@ -73,6 +96,8 @@ func RegisterScoped[T any](c Dic, creator func(Dic) T) {
 }
 
 func RegisterTransient[T any](c Dic, creator func(Dic) T) {
+	c.serviceResiterMutex.Lock()
+	defer c.serviceResiterMutex.Unlock()
 	key := typeKey[T]()
 	if _, ok := (*c.services)[key]; ok {
 		var t T
@@ -84,8 +109,11 @@ func RegisterTransient[T any](c Dic, creator func(Dic) T) {
 
 func NewContainer() Dic {
 	return Dic{
-		services:   &map[any]Service{},
-		singletons: &map[any]any{},
-		scoped:     map[any]any{},
+		serviceResiterMutex:  &sync.Mutex{},
+		services:             &map[any]Service{},
+		singletonCreateMutex: &sync.Mutex{},
+		singletons:           &map[any]any{},
+		scopedCreateMutex:    &sync.Mutex{},
+		scoped:               map[any]any{},
 	}
 }
