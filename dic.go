@@ -6,7 +6,7 @@ import (
 	"sync"
 )
 
-type Dic struct {
+type dic struct {
 	serviceResiterMutex *sync.Mutex
 	services            *map[any]Service
 	// single mutex is used instead of the map because this is unnecesary optimization which does not optimize for this use case
@@ -16,6 +16,8 @@ type Dic struct {
 	scopedCreateMutex *sync.Mutex
 	scoped            map[any]any
 }
+
+type Dic *dic
 
 func typeKey[T any]() any {
 	return (*T)(nil)
@@ -61,7 +63,7 @@ func Get[T any](c Dic) T {
 }
 
 func Scope(c Dic) Dic {
-	return Dic{
+	return &dic{
 		serviceResiterMutex:  c.serviceResiterMutex,
 		services:             c.services,
 		singletonCreateMutex: c.singletonCreateMutex,
@@ -108,7 +110,7 @@ func RegisterTransient[T any](c Dic, creator func(Dic) T) {
 }
 
 func NewContainer() Dic {
-	return Dic{
+	return &dic{
 		serviceResiterMutex:  &sync.Mutex{},
 		services:             &map[any]Service{},
 		singletonCreateMutex: &sync.Mutex{},
