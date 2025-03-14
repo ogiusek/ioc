@@ -73,7 +73,7 @@ func Scope(c Dic) Dic {
 	}
 }
 
-func RegisterSingleton[T any](c Dic, creator func(Dic) T) {
+func RegisterSingleton[T any](c Dic, creator func(c Dic) T) {
 	c.serviceResiterMutex.Lock()
 	defer c.serviceResiterMutex.Unlock()
 	key := typeKey[T]()
@@ -85,7 +85,7 @@ func RegisterSingleton[T any](c Dic, creator func(Dic) T) {
 	(*c.services)[key] = service
 }
 
-func RegisterScoped[T any](c Dic, creator func(Dic) T) {
+func RegisterScoped[T any](c Dic, creator func(c Dic) T) {
 	c.serviceResiterMutex.Lock()
 	defer c.serviceResiterMutex.Unlock()
 	key := typeKey[T]()
@@ -97,7 +97,7 @@ func RegisterScoped[T any](c Dic, creator func(Dic) T) {
 	(*c.services)[key] = service
 }
 
-func RegisterTransient[T any](c Dic, creator func(Dic) T) {
+func RegisterTransient[T any](c Dic, creator func(c Dic) T) {
 	c.serviceResiterMutex.Lock()
 	defer c.serviceResiterMutex.Unlock()
 	key := typeKey[T]()
