@@ -85,6 +85,22 @@ func (c Dic) Inject(servicePointer any) {
 
 }
 
+// InjectServices injects dependencies into the provided struct.
+//
+// The parameter `services` must be a pointer to a struct. All fields of this struct
+// that have the tag `inject:"1"` will be automatically injected with corresponding
+// instances from the DI container.
+//
+// Example:
+//
+//	type MyServices struct {
+//	    Logger Logger `inject:"1"`
+//	    Repo   Repo   `inject:"1"`
+//	}
+//	var svc MyServices
+//	dic.InjectServices(&svc)
+//
+// Note: Passing a non-pointer or a non-struct pointer will result in panic.
 func (c Dic) InjectServices(services any) {
 	servicePointer := reflect.ValueOf(services)
 	if servicePointer.Kind() != reflect.Ptr {
@@ -107,18 +123,5 @@ func (c Dic) InjectServices(services any) {
 
 		fieldPointer := serviceElem.Field(i).Addr().Interface()
 		c.Inject(fieldPointer)
-	}
-}
-
-func NewContainer() Dic {
-	return Dic{
-		c: &dic{
-			serviceResiterMutex:  &sync.Mutex{},
-			services:             &map[any]Service{},
-			singletonCreateMutex: &sync.Mutex{},
-			singletons:           &map[any]any{},
-			scopedCreateMutex:    &sync.Mutex{},
-			scoped:               map[any]any{},
-		},
 	}
 }
