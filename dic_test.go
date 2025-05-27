@@ -125,3 +125,25 @@ func TestTransient(t *testing.T) {
 		}
 	}
 }
+
+func TestServices(t *testing.T) {
+	type Services struct {
+		Service   int `inject:"1"`
+		NoService int
+	}
+
+	c := ioc.NewContainer()
+	service := 7
+	ioc.RegisterTransient(c, func(ioc.Dic) int { return service })
+
+	services := Services{}
+	c.InjectServices(&services)
+
+	if services.Service != service {
+		t.Error("service isn't properly injected")
+	}
+
+	if services.NoService == service {
+		t.Error("servie is injected without specifying it")
+	}
+}

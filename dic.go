@@ -1,6 +1,7 @@
 package ioc
 
 import (
+	"fmt"
 	"log"
 	"reflect"
 	"sync"
@@ -17,105 +18,107 @@ type dic struct {
 	scoped            map[any]any
 }
 
-type Dic *dic
-
-func typeKey[T any]() any {
-	return (*T)(nil)
+type Dic struct {
+	c *dic
 }
 
-func Get[T any](c Dic) T {
-	key := typeKey[T]()
-	service, ok := (*c.services)[key]
+func serviceKey(serviceAddr reflect.Value) any {
+	return serviceAddr.Type()
+}
+
+func (c Dic) Scope() Dic {
+	return Dic{
+		c: &dic{
+			serviceResiterMutex:  c.c.serviceResiterMutex,
+			services:             c.c.services,
+			singletonCreateMutex: c.c.singletonCreateMutex,
+			singletons:           c.c.singletons,
+			scopedCreateMutex:    &sync.Mutex{},
+			scoped:               map[any]any{},
+		},
+	}
+}
+
+func (c Dic) Inject(servicePointer any) {
+	serviceValue := reflect.ValueOf(servicePointer)
+	if serviceValue.Kind() != reflect.Ptr || serviceValue.IsNil() {
+		panic("service must be a non-nil pointer")
+	}
+	serviceElement := serviceValue.Elem()
+
+	key := serviceKey(serviceElement)
+
+	service, ok := (*c.c.services)[key]
 	if !ok {
-		var t T
-		log.Panicf("Service of type '%s' is not registered", reflect.TypeOf(t).String())
+		log.Panicf("Service of type '%s' is not registered", serviceElement.Type().String())
 	}
 	switch service.lifetime {
 	case singleton:
-		existing, ok := (*c.singletons)[key]
+		existing, ok := (*c.c.singletons)[key]
 		if !ok {
-			c.singletonCreateMutex.Lock()
-			existing, ok = (*c.singletons)[key]
+			c.c.singletonCreateMutex.Lock()
+			existing, ok = (*c.c.singletons)[key]
 			if !ok {
 				existing = service.creator(c)
-				(*c.singletons)[key] = existing
+				(*c.c.singletons)[key] = existing
 			}
-			c.singletonCreateMutex.Unlock()
+			c.c.singletonCreateMutex.Unlock()
 		}
-		return existing.(T)
+		serviceElement.Set(reflect.ValueOf(existing))
 	case scoped:
-		existing, ok := c.scoped[key]
+		existing, ok := c.c.scoped[key]
 		if !ok {
-			c.scopedCreateMutex.Lock()
-			existing, ok = c.scoped[key]
+			c.c.scopedCreateMutex.Lock()
+			existing, ok = c.c.scoped[key]
 			if !ok {
 				existing = service.creator(c)
-				c.scoped[key] = existing
+				c.c.scoped[key] = existing
 			}
-			c.scopedCreateMutex.Unlock()
+			c.c.scopedCreateMutex.Unlock()
 		}
-		return existing.(T)
+		serviceElement.Set(reflect.ValueOf(existing))
 	case transient:
-		return service.creator(c).(T)
+		serviceElement.Set(reflect.ValueOf(service.creator(c)))
 	default:
 		panic("requested service has invalid lifetime")
 	}
+
 }
 
-func Scope(c Dic) Dic {
-	return &dic{
-		serviceResiterMutex:  c.serviceResiterMutex,
-		services:             c.services,
-		singletonCreateMutex: c.singletonCreateMutex,
-		singletons:           c.singletons,
-		scopedCreateMutex:    &sync.Mutex{},
-		scoped:               map[any]any{},
+func (c Dic) InjectServices(services any) {
+	servicePointer := reflect.ValueOf(services)
+	if servicePointer.Kind() != reflect.Ptr {
+		panic(fmt.Sprintf("not a pointer: %T", services))
 	}
-}
 
-func RegisterSingleton[T any](c Dic, creator func(c Dic) T) {
-	c.serviceResiterMutex.Lock()
-	defer c.serviceResiterMutex.Unlock()
-	key := typeKey[T]()
-	if _, ok := (*c.services)[key]; ok {
-		var t T
-		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
+	serviceElem := servicePointer.Elem()
+	if serviceElem.Kind() != reflect.Struct {
+		panic(fmt.Sprintf("expected pointer to struct, got pointer to %s", serviceElem.Kind()))
 	}
-	service := newSingleton(func(c Dic) any { return creator(c) })
-	(*c.services)[key] = service
-}
 
-func RegisterScoped[T any](c Dic, creator func(c Dic) T) {
-	c.serviceResiterMutex.Lock()
-	defer c.serviceResiterMutex.Unlock()
-	key := typeKey[T]()
-	if _, ok := (*c.services)[key]; ok {
-		var t T
-		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
-	}
-	service := newScoped(func(c Dic) any { return creator(c) })
-	(*c.services)[key] = service
-}
+	serviceType := serviceElem.Type()
+	fields := serviceType.NumField()
 
-func RegisterTransient[T any](c Dic, creator func(c Dic) T) {
-	c.serviceResiterMutex.Lock()
-	defer c.serviceResiterMutex.Unlock()
-	key := typeKey[T]()
-	if _, ok := (*c.services)[key]; ok {
-		var t T
-		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
+	for i := 0; i < fields; i++ {
+		field := serviceType.Field(i)
+		if field.Tag.Get("inject") != "1" {
+			continue
+		}
+
+		fieldPointer := serviceElem.Field(i).Addr().Interface()
+		c.Inject(fieldPointer)
 	}
-	service := newTransient(func(c Dic) any { return creator(c) })
-	(*c.services)[key] = service
 }
 
 func NewContainer() Dic {
-	return &dic{
-		serviceResiterMutex:  &sync.Mutex{},
-		services:             &map[any]Service{},
-		singletonCreateMutex: &sync.Mutex{},
-		singletons:           &map[any]any{},
-		scopedCreateMutex:    &sync.Mutex{},
-		scoped:               map[any]any{},
+	return Dic{
+		c: &dic{
+			serviceResiterMutex:  &sync.Mutex{},
+			services:             &map[any]Service{},
+			singletonCreateMutex: &sync.Mutex{},
+			singletons:           &map[any]any{},
+			scopedCreateMutex:    &sync.Mutex{},
+			scoped:               map[any]any{},
+		},
 	}
 }
