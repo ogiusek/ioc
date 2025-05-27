@@ -39,10 +39,15 @@ func (c Dic) Scope() Dic {
 	}
 }
 
+// Inject replaces servicePointer value with a service from container.
+//
+// Panics when:
+// - service is not registered
+// - servicePointer is not a pointer
 func (c Dic) Inject(servicePointer any) {
 	serviceValue := reflect.ValueOf(servicePointer)
 	if serviceValue.Kind() != reflect.Ptr || serviceValue.IsNil() {
-		panic("service must be a non-nil pointer")
+		log.Panicf("service must be a non-nil pointer")
 	}
 	serviceElement := serviceValue.Elem()
 

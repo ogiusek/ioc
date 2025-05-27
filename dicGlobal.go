@@ -11,6 +11,8 @@ func typeKey[T any]() any {
 	return serviceKey(reflect.ValueOf(service))
 }
 
+// Returns service instance of type T.
+// Panics when T is not registered
 func Get[T any](c Dic) T {
 	var res T
 	c.Inject(&res)
@@ -37,6 +39,7 @@ func GetServices[T any](c Dic) T {
 	return res
 }
 
+// Returns new Scope
 func Scope(c Dic) Dic {
 	return c.Scope()
 }
