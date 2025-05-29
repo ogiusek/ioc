@@ -8,8 +8,6 @@ import (
 
 func typeKey[T any]() any {
 	var service T
-	// serviceType := reflect.TypeOf(&service).Elem()
-	// log.Printf("type key called for: %s", serviceType)
 	return reflect.TypeOf(&service).Elem()
 }
 

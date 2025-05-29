@@ -23,7 +23,6 @@ type Dic struct {
 }
 
 func serviceKey(serviceType reflect.Type) any {
-	// log.Printf("service key called for: %s", serviceType)
 	return serviceType
 }
 
@@ -107,7 +106,6 @@ func (c Dic) Inject(servicePointer any) {
 	}
 
 	serviceElement.Set(newServiceValue)
-	log.Print("called finish")
 }
 
 // InjectServices injects dependencies into the provided struct.
