@@ -22,8 +22,9 @@ type Dic struct {
 	c *dic
 }
 
-func serviceKey(serviceAddr reflect.Value) any {
-	return serviceAddr.Type()
+func serviceKey(serviceType reflect.Type) any {
+	// log.Printf("service key called for: %s", serviceType)
+	return serviceType
 }
 
 func (c Dic) Scope() Dic {
@@ -51,15 +52,18 @@ func (c Dic) Inject(servicePointer any) {
 	}
 	serviceElement := serviceValue.Elem()
 
-	key := serviceKey(serviceElement)
+	key := serviceKey(serviceElement.Type())
 
 	service, ok := (*c.c.services)[key]
 	if !ok {
 		log.Panicf("Service of type '%s' is not registered", serviceElement.Type().String())
 	}
+
+	var existing any
+
 	switch service.lifetime {
 	case singleton:
-		existing, ok := (*c.c.singletons)[key]
+		existing, ok = (*c.c.singletons)[key]
 		if !ok {
 			c.c.singletonCreateMutex.Lock()
 			existing, ok = (*c.c.singletons)[key]
@@ -69,9 +73,9 @@ func (c Dic) Inject(servicePointer any) {
 			}
 			c.c.singletonCreateMutex.Unlock()
 		}
-		serviceElement.Set(reflect.ValueOf(existing))
+		break
 	case scoped:
-		existing, ok := c.c.scoped[key]
+		existing, ok = c.c.scoped[key]
 		if !ok {
 			c.c.scopedCreateMutex.Lock()
 			existing, ok = c.c.scoped[key]
@@ -81,13 +85,29 @@ func (c Dic) Inject(servicePointer any) {
 			}
 			c.c.scopedCreateMutex.Unlock()
 		}
-		serviceElement.Set(reflect.ValueOf(existing))
+		break
 	case transient:
-		serviceElement.Set(reflect.ValueOf(service.creator(c)))
+		existing = service.creator(c)
+		break
 	default:
 		panic("requested service has invalid lifetime")
 	}
 
+	var newServiceValue reflect.Value
+	switch serviceElement.Type().Kind() {
+	case reflect.Interface:
+		if existing == nil {
+			newServiceValue = reflect.ValueOf(&existing).Elem()
+		} else {
+			newServiceValue = reflect.ValueOf(existing)
+		}
+		break
+	default:
+		newServiceValue = reflect.ValueOf(existing)
+	}
+
+	serviceElement.Set(newServiceValue)
+	log.Print("called finish")
 }
 
 // InjectServices injects dependencies into the provided struct.
