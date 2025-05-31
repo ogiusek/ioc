@@ -410,3 +410,24 @@ func RunContainerTestsForType[Service any](
 		})
 	}
 }
+
+func TestGettingServices(t *testing.T) {
+	type Service struct {
+		value int
+	}
+	type Services struct {
+		Service `inject:"1"`
+	}
+
+	val := 7
+
+	c := ioc.NewContainer()
+	ioc.RegisterSingleton(c, func(c ioc.Dic) Service { return Service{value: val} })
+
+	var services Services
+	c.InjectServices(&services)
+
+	if services.Service.value != val {
+		t.Errorf("injected value is not equal to expected")
+	}
+}
