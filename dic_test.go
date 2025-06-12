@@ -2,6 +2,7 @@ package ioc_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"testing"
@@ -109,12 +110,14 @@ func RunContainerTestsForType[Service any](
 			defer func() {
 				if r := recover(); r != nil {
 					afterPanic()
-				} else {
-					t.Errorf("container should panic when injecting not existing service")
+					t.Errorf("container shouldn't panic when injecting not existing service")
 				}
 			}()
 			var service Service
-			c.Inject(&service)
+			err := c.Inject(&service)
+			if errors.Is(ioc.ErrServiceIsntRegistered, err) {
+				t.Errorf("expected ErrServiceIsntRegistered error but got %s", err)
+			}
 		})
 	}
 

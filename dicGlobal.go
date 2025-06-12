@@ -17,7 +17,9 @@ func typeKey[T any]() any {
 // Panics when T is not registered
 func Get[T any](c Dic) T {
 	var res T
-	c.Inject(&res)
+	if err := c.Inject(&res); err != nil {
+		panic(err)
+	}
 	return res
 }
 
@@ -37,7 +39,9 @@ func Get[T any](c Dic) T {
 // Note: If T is not a struct type, or if injection fails, this function may panic.
 func GetServices[T any](c Dic) T {
 	var res T
-	c.InjectServices(&res)
+	if err := c.InjectServices(&res); err != nil {
+		panic(err)
+	}
 	return res
 }
 

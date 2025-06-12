@@ -1,8 +1,8 @@
 package ioc
 
 import (
+	"errors"
 	"fmt"
-	"log"
 	"reflect"
 	"sync"
 
@@ -42,15 +42,21 @@ func (c Dic) Scope() Dic {
 	}
 }
 
+var (
+	ErrIsntPointer           error = errors.New("isn't a pointer")
+	ErrIsntPointerToStruct   error = errors.New("isn't a pointer to a struct")
+	ErrServiceIsntRegistered error = errors.New("service isn't registered")
+)
+
 // Inject replaces servicePointer value with a service from container.
 //
 // Panics when:
 // - service is not registered
 // - servicePointer is not a pointer
-func (c Dic) Inject(servicePointer any) {
+func (c Dic) Inject(servicePointer any) error {
 	serviceValue := reflect.ValueOf(servicePointer)
 	if serviceValue.Kind() != reflect.Ptr || serviceValue.IsNil() {
-		log.Panicf("service must be a non-nil pointer")
+		return ErrIsntPointer
 	}
 	serviceElement := serviceValue.Elem()
 
@@ -59,7 +65,10 @@ func (c Dic) Inject(servicePointer any) {
 
 	service, ok := (*c.c.services)[key]
 	if !ok {
-		log.Panicf("Service of type '%s' is not registered", serviceElement.Type().String())
+		return errors.Join(
+			ErrServiceIsntRegistered,
+			errors.New(fmt.Sprintf("Service of type '%s' is not registered", serviceElement.Type().String())),
+		)
 	}
 
 	var existing any
@@ -110,6 +119,7 @@ func (c Dic) Inject(servicePointer any) {
 	}
 
 	serviceElement.Set(newServiceValue)
+	return nil
 }
 
 // InjectServices injects dependencies into the provided struct.
@@ -127,16 +137,22 @@ func (c Dic) Inject(servicePointer any) {
 //	var svc MyServices
 //	dic.InjectServices(&svc)
 //
-// Note: Passing a non-pointer or a non-struct pointer will result in panic.
-func (c Dic) InjectServices(services any) {
+// can return ErrIsntPointerToStruct error or any error returned by c.Inject() method
+func (c Dic) InjectServices(services any) error {
 	servicePointer := reflect.ValueOf(services)
 	if servicePointer.Kind() != reflect.Ptr {
-		panic(fmt.Sprintf("not a pointer: %T", services))
+		return errors.Join(
+			ErrIsntPointerToStruct,
+			errors.New(fmt.Sprintf("not a pointer: %T", services)),
+		)
 	}
 
 	serviceElem := servicePointer.Elem()
 	if serviceElem.Kind() != reflect.Struct {
-		panic(fmt.Sprintf("expected pointer to struct, got pointer to %s", serviceElem.Kind()))
+		return errors.Join(
+			ErrIsntPointerToStruct,
+			errors.New(fmt.Sprintf("expected pointer to struct, got pointer to %s", serviceElem.Kind())),
+		)
 	}
 
 	serviceType := serviceElem.Type()
@@ -149,6 +165,11 @@ func (c Dic) InjectServices(services any) {
 		}
 
 		fieldPointer := serviceElem.Field(i).Addr().Interface()
-		c.Inject(fieldPointer)
+		err := c.Inject(fieldPointer)
+		if err != nil {
+			return err
+		}
 	}
+
+	return nil
 }
