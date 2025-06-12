@@ -4,6 +4,8 @@ import (
 	"log"
 	"reflect"
 	"sync"
+
+	"github.com/optimus-hft/lockset"
 )
 
 func typeKey[T any]() any {
@@ -45,8 +47,8 @@ func Scope(c Dic) Dic {
 }
 
 func RegisterSingleton[T any](c Dic, creator func(c Dic) T) {
-	c.c.serviceResiterMutex.Lock()
-	defer c.c.serviceResiterMutex.Unlock()
+	c.c.serviceRegisterMutex.Lock()
+	defer c.c.serviceRegisterMutex.Unlock()
 	key := typeKey[T]()
 	if _, ok := (*c.c.services)[key]; ok {
 		var t T
@@ -57,8 +59,8 @@ func RegisterSingleton[T any](c Dic, creator func(c Dic) T) {
 }
 
 func RegisterScoped[T any](c Dic, creator func(c Dic) T) {
-	c.c.serviceResiterMutex.Lock()
-	defer c.c.serviceResiterMutex.Unlock()
+	c.c.serviceRegisterMutex.Lock()
+	defer c.c.serviceRegisterMutex.Unlock()
 	key := typeKey[T]()
 	if _, ok := (*c.c.services)[key]; ok {
 		var t T
@@ -69,8 +71,8 @@ func RegisterScoped[T any](c Dic, creator func(c Dic) T) {
 }
 
 func RegisterTransient[T any](c Dic, creator func(c Dic) T) {
-	c.c.serviceResiterMutex.Lock()
-	defer c.c.serviceResiterMutex.Unlock()
+	c.c.serviceRegisterMutex.Lock()
+	defer c.c.serviceRegisterMutex.Unlock()
 	key := typeKey[T]()
 	if _, ok := (*c.c.services)[key]; ok {
 		var t T
@@ -83,12 +85,12 @@ func RegisterTransient[T any](c Dic, creator func(c Dic) T) {
 func NewContainer() Dic {
 	return Dic{
 		c: &dic{
-			serviceResiterMutex:  &sync.Mutex{},
-			services:             &map[any]Service{},
-			singletonCreateMutex: &sync.Mutex{},
-			singletons:           &map[any]any{},
-			scopedCreateMutex:    &sync.Mutex{},
-			scoped:               map[any]any{},
+			serviceRegisterMutex:   &sync.Mutex{},
+			services:               &map[any]Service{},
+			singletonCreateLockset: lockset.New(),
+			singletons:             &map[any]any{},
+			scopedCreateLockset:    lockset.New(),
+			scoped:                 map[any]any{},
 		},
 	}
 }

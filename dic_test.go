@@ -189,6 +189,63 @@ func RunContainerTestsForType[Service any](
 			}
 		})
 
+		// test getting service during resitstration of singleton service
+		t.Run("panics", func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					afterPanic()
+					t.Errorf("container panics when injecting singleton service requiring service")
+				}
+			}()
+
+			type RequiringService struct{ Service Service }
+			ioc.RegisterSingleton(c, func(c ioc.Dic) RequiringService { return RequiringService{Service: ioc.Get[Service](c)} })
+			var service RequiringService
+			c.Inject(&service)
+
+			if !equal(service.Service, serviceA) {
+				t.Errorf("retrieved service is not equal to registered service")
+			}
+		})
+
+		// test getting service during resitstration of scoped service
+		t.Run("panics", func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					afterPanic()
+					t.Errorf("container panics when injecting scoped service requiring service")
+				}
+			}()
+
+			type RequiringService struct{ Service Service }
+			ioc.RegisterScoped(c, func(c ioc.Dic) RequiringService { return RequiringService{Service: ioc.Get[Service](c)} })
+			var service RequiringService
+			c.Inject(&service)
+
+			if !equal(service.Service, serviceA) {
+				t.Errorf("retrieved service is not equal to registered service")
+			}
+		})
+
+		// test getting service during resitstration of transient service
+		t.Run("panics", func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					afterPanic()
+					t.Errorf("container panics when injecting transient service requiring service")
+				}
+			}()
+
+			type RequiringService struct{ Service Service }
+			ioc.RegisterTransient(c, func(c ioc.Dic) RequiringService { return RequiringService{Service: ioc.Get[Service](c)} })
+			var service RequiringService
+			c.Inject(&service)
+
+			if !equal(service.Service, serviceA) {
+				t.Errorf("retrieved service is not equal to registered service")
+			}
+		})
+
 		// test injecting services
 		t.Run("panics", func(t *testing.T) {
 			defer func() {
@@ -429,5 +486,20 @@ func TestGettingServices(t *testing.T) {
 
 	if services.Service.value != val {
 		t.Errorf("injected value is not equal to expected")
+	}
+}
+
+func TestDoubleInjection(t *testing.T) {
+	c := ioc.NewContainer()
+
+	type Service struct{ Val int }
+	ioc.RegisterSingleton(c, func(c ioc.Dic) Service { return Service{Val: 1} })
+
+	type Wrapper struct{ Service Service }
+	ioc.RegisterSingleton(c, func(c ioc.Dic) Wrapper { return Wrapper{Service: ioc.Get[Service](c)} })
+
+	wrapper := ioc.Get[Wrapper](c)
+	if wrapper.Service.Val != 1 {
+		t.Errorf("service inside other service isn't equal to its expected value")
 	}
 }
