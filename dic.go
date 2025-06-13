@@ -49,10 +49,7 @@ var (
 )
 
 // Inject replaces servicePointer value with a service from container.
-//
-// Panics when:
-// - service is not registered
-// - servicePointer is not a pointer
+// Can return ErrServiceIsntRegistered or ErrIsntPointer
 func (c Dic) Inject(servicePointer any) error {
 	serviceValue := reflect.ValueOf(servicePointer)
 	if serviceValue.Kind() != reflect.Ptr || serviceValue.IsNil() {
