@@ -15,16 +15,17 @@ func typeKey[T any]() serviceID {
 }
 
 // Returns service instance of type T.
-// Panics when T is not registered
-func Get[T any](c Dic) T {
+// Returns error when T is not registered
+func TryGet[T any](c Dic) (T, error) {
 	key := typeKey[T]()
 
 	service, ok := (*c.c.services)[key]
 	if !ok {
-		panic(errors.Join(
+		var t T
+		return t, errors.Join(
 			ErrServiceIsntRegistered,
 			errors.New(fmt.Sprintf("Service of type '%s' is not registered", reflect.TypeFor[T]().String())),
-		))
+		)
 	}
 
 	var res any
@@ -61,7 +62,17 @@ func Get[T any](c Dic) T {
 		panic("requested service has invalid lifetime")
 	}
 
-	return res.(T)
+	return res.(T), nil
+}
+
+// Returns service instance of type T.
+// Panics when T is not registered
+func Get[T any](c Dic) T {
+	s, err := TryGet[T](c)
+	if err != nil {
+		panic(err.Error())
+	}
+	return s
 }
 
 // GetServices creates a new instance of type T, injects dependencies into it, and returns it.
@@ -78,10 +89,16 @@ func Get[T any](c Dic) T {
 //	svc := GetServices[MyServices](dic)
 //
 // Note: If T is not a struct type, or if injection fails, this function may panic.
-func GetServices[T any](c Dic) T {
+func TryGetServices[T any](c Dic) (T, error) {
 	var res T
-	if err := c.InjectServices(&res); err != nil {
-		panic(err)
+	err := c.InjectServices(&res)
+	return res, err
+}
+
+func GetServices[T any](c Dic) T {
+	res, err := TryGetServices[T](c)
+	if err != nil {
+		panic(err.Error())
 	}
 	return res
 }
