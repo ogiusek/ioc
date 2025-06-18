@@ -88,3 +88,17 @@ func BenchmarkMapWithMutexForComparison(b *testing.B) {
 		mutex.Unlock()
 	}
 }
+func BenchmarkMapPtrWithMutexForComparison(b *testing.B) {
+	key := "item"
+	testedMap := &map[string]int{
+		key: 1,
+	}
+	mutex := &sync.Mutex{}
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		mutex.Lock()
+		_ = (*testedMap)[key]
+		mutex.Unlock()
+	}
+}

@@ -6,27 +6,30 @@ import (
 	"reflect"
 	"sync"
 
-	"github.com/optimus-hft/lockset"
+	"github.com/ogiusek/lockset"
 )
+
+type serviceID any
 
 type dic struct {
 	serviceRegisterMutex   *sync.Mutex
 	serviceCreationLockSet lockset.Set
-	services               *map[any]Service
+	services               *map[serviceID]Service
+	notAppliedWraps        *map[serviceID]ctorWraps
 
 	singletonCreateLockset *lockset.Set
-	singletons             *map[any]any
+	singletons             *map[serviceID]any
 
 	scopedCreateLockset *lockset.Set
-	scoped              map[any]any
+	scoped              map[serviceID]any
 }
 
 type Dic struct {
 	c *dic
 }
 
-func serviceKey(serviceType reflect.Type) any {
-	return serviceType
+func serviceKey(serviceType reflect.Type) serviceID {
+	return reflect.Zero(reflect.PointerTo(serviceType)).Interface()
 }
 
 func (c Dic) Scope() Dic {
@@ -34,10 +37,11 @@ func (c Dic) Scope() Dic {
 		c: &dic{
 			serviceRegisterMutex:   c.c.serviceRegisterMutex,
 			services:               c.c.services,
+			notAppliedWraps:        c.c.notAppliedWraps,
 			singletonCreateLockset: c.c.singletonCreateLockset,
 			singletons:             c.c.singletons,
 			scopedCreateLockset:    lockset.New(),
-			scoped:                 map[any]any{},
+			scoped:                 map[serviceID]any{},
 		},
 	}
 }
@@ -51,14 +55,16 @@ var (
 // Inject replaces servicePointer value with a service from container.
 // Can return ErrServiceIsntRegistered or ErrIsntPointer
 func (c Dic) Inject(servicePointer any) error {
+	if servicePointer == nil {
+		return ErrIsntPointer
+	}
 	serviceValue := reflect.ValueOf(servicePointer)
-	if serviceValue.Kind() != reflect.Ptr || serviceValue.IsNil() {
+	if serviceValue.Kind() != reflect.Ptr {
 		return ErrIsntPointer
 	}
 	serviceElement := serviceValue.Elem()
 
 	key := serviceKey(serviceElement.Type())
-	stringKey := fmt.Sprintf("%s", key)
 
 	service, ok := (*c.c.services)[key]
 	if !ok {
@@ -74,25 +80,25 @@ func (c Dic) Inject(servicePointer any) error {
 	case singleton:
 		existing, ok = (*c.c.singletons)[key]
 		if !ok {
-			c.c.singletonCreateLockset.Lock(stringKey)
+			c.c.singletonCreateLockset.Lock(key)
 			existing, ok = (*c.c.singletons)[key]
 			if !ok {
 				existing = service.creator(c)
 				(*c.c.singletons)[key] = existing
 			}
-			c.c.singletonCreateLockset.Unlock(stringKey)
+			c.c.singletonCreateLockset.Unlock(key)
 		}
 		break
 	case scoped:
 		existing, ok = c.c.scoped[key]
 		if !ok {
-			c.c.scopedCreateLockset.Lock(stringKey)
+			c.c.scopedCreateLockset.Lock(key)
 			existing, ok = c.c.scoped[key]
 			if !ok {
 				existing = service.creator(c)
 				c.c.scoped[key] = existing
 			}
-			c.c.scopedCreateLockset.Unlock(stringKey)
+			c.c.scopedCreateLockset.Unlock(key)
 		}
 		break
 	case transient:

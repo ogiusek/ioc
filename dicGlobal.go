@@ -1,26 +1,67 @@
 package ioc
 
 import (
+	"errors"
+	"fmt"
 	"log"
 	"reflect"
 	"sync"
 
-	"github.com/optimus-hft/lockset"
+	"github.com/ogiusek/lockset"
 )
 
-func typeKey[T any]() any {
-	var service T
-	return reflect.TypeOf(&service).Elem()
+func typeKey[T any]() serviceID {
+	return (*T)(nil)
 }
 
 // Returns service instance of type T.
 // Panics when T is not registered
 func Get[T any](c Dic) T {
-	var res T
-	if err := c.Inject(&res); err != nil {
-		panic(err)
+	key := typeKey[T]()
+
+	service, ok := (*c.c.services)[key]
+	if !ok {
+		panic(errors.Join(
+			ErrServiceIsntRegistered,
+			errors.New(fmt.Sprintf("Service of type '%s' is not registered", reflect.TypeFor[T]().String())),
+		))
 	}
-	return res
+
+	var res any
+
+	switch service.lifetime {
+	case singleton:
+		res, ok = (*c.c.singletons)[key]
+		if !ok {
+			c.c.singletonCreateLockset.Lock(key)
+			res, ok = (*c.c.singletons)[key]
+			if !ok {
+				res = service.creator(c)
+				(*c.c.singletons)[key] = res
+			}
+			c.c.singletonCreateLockset.Unlock(key)
+		}
+		break
+	case scoped:
+		res, ok = c.c.scoped[key]
+		if !ok {
+			c.c.scopedCreateLockset.Lock(key)
+			res, ok = c.c.scoped[key]
+			if !ok {
+				res = service.creator(c)
+				c.c.scoped[key] = res
+			}
+			c.c.scopedCreateLockset.Unlock(key)
+		}
+		break
+	case transient:
+		res = service.creator(c)
+		break
+	default:
+		panic("requested service has invalid lifetime")
+	}
+
+	return res.(T)
 }
 
 // GetServices creates a new instance of type T, injects dependencies into it, and returns it.
@@ -60,6 +101,7 @@ func RegisterSingleton[T any](c Dic, creator func(c Dic) T) {
 	}
 	service := newSingleton(func(c Dic) any { return creator(c) })
 	(*c.c.services)[key] = service
+	ensureWrapped[T](c)
 }
 
 func RegisterScoped[T any](c Dic, creator func(c Dic) T) {
@@ -72,6 +114,7 @@ func RegisterScoped[T any](c Dic, creator func(c Dic) T) {
 	}
 	service := newScoped(func(c Dic) any { return creator(c) })
 	(*c.c.services)[key] = service
+	ensureWrapped[T](c)
 }
 
 func RegisterTransient[T any](c Dic, creator func(c Dic) T) {
@@ -84,17 +127,57 @@ func RegisterTransient[T any](c Dic, creator func(c Dic) T) {
 	}
 	service := newTransient(func(c Dic) any { return creator(c) })
 	(*c.c.services)[key] = service
+	ensureWrapped[T](c)
+}
+
+func ensureWrapped[T any](c Dic) {
+	key := typeKey[T]()
+	notAppliedWraps, ok := (*c.c.notAppliedWraps)[key]
+	if !ok {
+		return
+	}
+	s, ok := (*c.c.services)[key]
+	if !ok {
+		return
+	}
+	s.wrap(notAppliedWraps)
+	(*c.c.services)[key] = s
+	delete(*c.c.notAppliedWraps, key)
+
+}
+
+func WrapService[T any](c Dic, wrap func(c Dic, s T) T) {
+	wraps := newCtorWrap(wrap)
+	c.c.serviceRegisterMutex.Lock()
+	defer c.c.serviceRegisterMutex.Unlock()
+	key := typeKey[T]()
+	s, ok := (*c.c.services)[key]
+	if ok {
+		s.wrap(wraps)
+		(*c.c.services)[key] = s
+		return
+	}
+
+	originalWraps, ok := (*c.c.notAppliedWraps)[key]
+	if !ok {
+		(*c.c.notAppliedWraps)[key] = wraps
+		return
+	}
+
+	originalWraps.wrap(wraps)
+	(*c.c.notAppliedWraps)[key] = originalWraps
 }
 
 func NewContainer() Dic {
 	return Dic{
 		c: &dic{
 			serviceRegisterMutex:   &sync.Mutex{},
-			services:               &map[any]Service{},
+			services:               &map[serviceID]Service{},
+			notAppliedWraps:        &map[serviceID]ctorWraps{},
 			singletonCreateLockset: lockset.New(),
-			singletons:             &map[any]any{},
+			singletons:             &map[serviceID]any{},
 			scopedCreateLockset:    lockset.New(),
-			scoped:                 map[any]any{},
+			scoped:                 map[serviceID]any{},
 		},
 	}
 }
