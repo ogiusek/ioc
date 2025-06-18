@@ -9,7 +9,7 @@ import (
 
 // go test -bench=.
 
-func BenchmarkTransientRetreive(b *testing.B) {
+func BenchmarkGetTransient(b *testing.B) {
 	initial := 1
 	c := ioc.NewContainer()
 	ioc.RegisterTransient(c, func(d ioc.Dic) int {
@@ -22,7 +22,7 @@ func BenchmarkTransientRetreive(b *testing.B) {
 	}
 }
 
-func BenchmarkScopedRetrieve(b *testing.B) {
+func BenchmarkGetScoped(b *testing.B) {
 	initial := 1
 	c := ioc.NewContainer()
 	ioc.RegisterScoped(c, func(d ioc.Dic) int {
@@ -49,7 +49,21 @@ func BenchmarkScopeCreation(b *testing.B) {
 	}
 }
 
-func BenchmarkSingletonRetrieve(b *testing.B) {
+func BenchmarkInjectSingleton(b *testing.B) {
+	initial := 1
+	c := ioc.NewContainer()
+	ioc.RegisterSingleton(c, func(d ioc.Dic) int {
+		return initial
+	})
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		var service int
+		c.Inject(&service)
+	}
+}
+
+func BenchmarkGetSingleton(b *testing.B) {
 	initial := 1
 	c := ioc.NewContainer()
 	ioc.RegisterSingleton(c, func(d ioc.Dic) int {
@@ -59,6 +73,18 @@ func BenchmarkSingletonRetrieve(b *testing.B) {
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ioc.Get[int](c)
+	}
+}
+
+func BenchmarkGetSingletonServices(b *testing.B) {
+	type Services struct {
+		Service int `inject:"1"`
+	}
+	c := ioc.NewContainer()
+	ioc.RegisterSingleton(c, func(c ioc.Dic) int { return 7 })
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ioc.GetServices[Services](c)
 	}
 }
 
