@@ -118,7 +118,7 @@ func exampleGetServices(c ioc.Dic) {
 
 ## Contributing
 
-
+Contact us we are open for suggestions
 
 ## License
 
