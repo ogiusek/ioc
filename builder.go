@@ -14,12 +14,12 @@ type builder struct {
 }
 
 type Builder struct {
-	c builder
+	b *builder
 }
 
 func NewBuilder() Builder {
 	return Builder{
-		builder{
+		b: &builder{
 			notAppliedWraps: map[serviceID]ctorWraps{},
 			services:        map[serviceID]Service{},
 		},
@@ -32,13 +32,13 @@ func (b Builder) Build() Dic {
 		&dic{
 			serviceRegisterMutex:   &sync.Mutex{},
 			serviceCreationLockSet: *lockset.New(),
-			services:               &b.c.services,
+			services:               &b.b.services,
 			singletons:             &singletons,
 			scopedCreateLockset:    lockset.New(),
 			scoped:                 map[serviceID]any{},
 		},
 	}
-	for key, service := range b.c.services {
+	for key, service := range b.b.services {
 		if service.lifetime != singleton {
 			continue
 		}
@@ -56,70 +56,70 @@ func (b Builder) Wrap(wrap func(Builder) Builder) Builder {
 
 func RegisterSingleton[T any](b Builder, creator func(c Dic) T) Builder {
 	key := typeKey[T]()
-	if _, ok := b.c.services[key]; ok {
+	if _, ok := b.b.services[key]; ok {
 		var t T
 		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
 	}
 	service := newSingleton(func(c Dic) any { return creator(c) })
-	b.c.services[key] = service
+	b.b.services[key] = service
 	return ensureWrapped[T](b)
 }
 
 func RegisterScoped[T any](b Builder, creator func(c Dic) T) Builder {
 	key := typeKey[T]()
-	if _, ok := b.c.services[key]; ok {
+	if _, ok := b.b.services[key]; ok {
 		var t T
 		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
 	}
 	service := newScoped(func(c Dic) any { return creator(c) })
-	b.c.services[key] = service
+	b.b.services[key] = service
 	return ensureWrapped[T](b)
 }
 
 func RegisterTransient[T any](b Builder, creator func(c Dic) T) Builder {
 	key := typeKey[T]()
-	if _, ok := b.c.services[key]; ok {
+	if _, ok := b.b.services[key]; ok {
 		var t T
 		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
 	}
 	service := newTransient(func(c Dic) any { return creator(c) })
-	b.c.services[key] = service
+	b.b.services[key] = service
 	return ensureWrapped[T](b)
 }
 
 func ensureWrapped[T any](b Builder) Builder {
 	key := typeKey[T]()
-	notAppliedWraps, ok := b.c.notAppliedWraps[key]
+	notAppliedWraps, ok := b.b.notAppliedWraps[key]
 	if !ok {
 		return b
 	}
-	s, ok := b.c.services[key]
+	s, ok := b.b.services[key]
 	if !ok {
 		return b
 	}
 	s.wrap(notAppliedWraps)
-	b.c.services[key] = s
-	delete(b.c.notAppliedWraps, key)
+	b.b.services[key] = s
+	delete(b.b.notAppliedWraps, key)
 	return b
 }
 
 func WrapService[T any](b Builder, wrap func(c Dic, s T) T) Builder {
 	wraps := newCtorWrap(wrap)
 	key := typeKey[T]()
-	s, ok := b.c.services[key]
+	s, ok := b.b.services[key]
 	if ok {
 		s.wrap(wraps)
-		b.c.services[key] = s
+		b.b.services[key] = s
 		return b
 	}
 
-	originalWraps, ok := b.c.notAppliedWraps[key]
+	originalWraps, ok := b.b.notAppliedWraps[key]
 	if !ok {
-		b.c.notAppliedWraps[key] = wraps
+		b.b.notAppliedWraps[key] = wraps
 		return b
 	}
 
 	originalWraps.wrap(wraps)
-	b.c.notAppliedWraps[key] = originalWraps
+	b.b.notAppliedWraps[key] = originalWraps
 	return b
 }
