@@ -3,11 +3,7 @@ package ioc
 import (
 	"errors"
 	"fmt"
-	"log"
 	"reflect"
-	"sync"
-
-	"github.com/ogiusek/lockset"
 )
 
 func typeKey[T any]() serviceID {
@@ -34,13 +30,11 @@ func TryGet[T any](c Dic) (T, error) {
 	case singleton:
 		res, ok = (*c.c.singletons)[key]
 		if !ok {
-			c.c.singletonCreateLockset.Lock(key)
 			res, ok = (*c.c.singletons)[key]
 			if !ok {
 				res = service.creator(c)
 				(*c.c.singletons)[key] = res
 			}
-			c.c.singletonCreateLockset.Unlock(key)
 		}
 		break
 	case scoped:
@@ -106,95 +100,4 @@ func GetServices[T any](c Dic) T {
 // Returns new Scope
 func Scope(c Dic) Dic {
 	return c.Scope()
-}
-
-func RegisterSingleton[T any](c Dic, creator func(c Dic) T) {
-	c.c.serviceRegisterMutex.Lock()
-	defer c.c.serviceRegisterMutex.Unlock()
-	key := typeKey[T]()
-	if _, ok := (*c.c.services)[key]; ok {
-		var t T
-		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
-	}
-	service := newSingleton(func(c Dic) any { return creator(c) })
-	(*c.c.services)[key] = service
-	ensureWrapped[T](c)
-}
-
-func RegisterScoped[T any](c Dic, creator func(c Dic) T) {
-	c.c.serviceRegisterMutex.Lock()
-	defer c.c.serviceRegisterMutex.Unlock()
-	key := typeKey[T]()
-	if _, ok := (*c.c.services)[key]; ok {
-		var t T
-		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
-	}
-	service := newScoped(func(c Dic) any { return creator(c) })
-	(*c.c.services)[key] = service
-	ensureWrapped[T](c)
-}
-
-func RegisterTransient[T any](c Dic, creator func(c Dic) T) {
-	c.c.serviceRegisterMutex.Lock()
-	defer c.c.serviceRegisterMutex.Unlock()
-	key := typeKey[T]()
-	if _, ok := (*c.c.services)[key]; ok {
-		var t T
-		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
-	}
-	service := newTransient(func(c Dic) any { return creator(c) })
-	(*c.c.services)[key] = service
-	ensureWrapped[T](c)
-}
-
-func ensureWrapped[T any](c Dic) {
-	key := typeKey[T]()
-	notAppliedWraps, ok := (*c.c.notAppliedWraps)[key]
-	if !ok {
-		return
-	}
-	s, ok := (*c.c.services)[key]
-	if !ok {
-		return
-	}
-	s.wrap(notAppliedWraps)
-	(*c.c.services)[key] = s
-	delete(*c.c.notAppliedWraps, key)
-
-}
-
-func WrapService[T any](c Dic, wrap func(c Dic, s T) T) {
-	wraps := newCtorWrap(wrap)
-	c.c.serviceRegisterMutex.Lock()
-	defer c.c.serviceRegisterMutex.Unlock()
-	key := typeKey[T]()
-	s, ok := (*c.c.services)[key]
-	if ok {
-		s.wrap(wraps)
-		(*c.c.services)[key] = s
-		return
-	}
-
-	originalWraps, ok := (*c.c.notAppliedWraps)[key]
-	if !ok {
-		(*c.c.notAppliedWraps)[key] = wraps
-		return
-	}
-
-	originalWraps.wrap(wraps)
-	(*c.c.notAppliedWraps)[key] = originalWraps
-}
-
-func NewContainer() Dic {
-	return Dic{
-		c: &dic{
-			serviceRegisterMutex:   &sync.Mutex{},
-			services:               &map[serviceID]Service{},
-			notAppliedWraps:        &map[serviceID]ctorWraps{},
-			singletonCreateLockset: lockset.New(),
-			singletons:             &map[serviceID]any{},
-			scopedCreateLockset:    lockset.New(),
-			scoped:                 map[serviceID]any{},
-		},
-	}
 }

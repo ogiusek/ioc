@@ -11,10 +11,10 @@ import (
 
 func BenchmarkGetTransient(b *testing.B) {
 	initial := 1
-	c := ioc.NewContainer()
-	ioc.RegisterTransient(c, func(d ioc.Dic) int {
-		return initial
-	})
+	c := ioc.NewBuilder().
+		Wrap(func(b ioc.Builder) ioc.Builder {
+			return ioc.RegisterTransient(b, func(c ioc.Dic) int { return initial })
+		}).Build()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -24,10 +24,10 @@ func BenchmarkGetTransient(b *testing.B) {
 
 func BenchmarkGetScoped(b *testing.B) {
 	initial := 1
-	c := ioc.NewContainer()
-	ioc.RegisterScoped(c, func(d ioc.Dic) int {
-		return initial
-	})
+	c := ioc.NewBuilder().
+		Wrap(func(b ioc.Builder) ioc.Builder {
+			return ioc.RegisterScoped(b, func(c ioc.Dic) int { return initial })
+		}).Build()
 	scope := ioc.Scope(c)
 
 	b.ResetTimer()
@@ -38,10 +38,10 @@ func BenchmarkGetScoped(b *testing.B) {
 
 func BenchmarkScopeCreation(b *testing.B) {
 	initial := 1
-	c := ioc.NewContainer()
-	ioc.RegisterScoped(c, func(d ioc.Dic) int {
-		return initial
-	})
+	c := ioc.NewBuilder().
+		Wrap(func(b ioc.Builder) ioc.Builder {
+			return ioc.RegisterScoped(b, func(d ioc.Dic) int { return initial })
+		}).Build()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -51,10 +51,10 @@ func BenchmarkScopeCreation(b *testing.B) {
 
 func BenchmarkInjectSingleton(b *testing.B) {
 	initial := 1
-	c := ioc.NewContainer()
-	ioc.RegisterSingleton(c, func(d ioc.Dic) int {
-		return initial
-	})
+	c := ioc.NewBuilder().
+		Wrap(func(b ioc.Builder) ioc.Builder {
+			return ioc.RegisterSingleton(b, func(d ioc.Dic) int { return initial })
+		}).Build()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -65,10 +65,10 @@ func BenchmarkInjectSingleton(b *testing.B) {
 
 func BenchmarkGetSingleton(b *testing.B) {
 	initial := 1
-	c := ioc.NewContainer()
-	ioc.RegisterSingleton(c, func(d ioc.Dic) int {
-		return initial
-	})
+	c := ioc.NewBuilder().
+		Wrap(func(b ioc.Builder) ioc.Builder {
+			return ioc.RegisterSingleton(b, func(d ioc.Dic) int { return initial })
+		}).Build()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
@@ -80,8 +80,11 @@ func BenchmarkGetSingletonServices(b *testing.B) {
 	type Services struct {
 		Service int `inject:"1"`
 	}
-	c := ioc.NewContainer()
-	ioc.RegisterSingleton(c, func(c ioc.Dic) int { return 7 })
+	c := ioc.NewBuilder().
+		Wrap(func(b ioc.Builder) ioc.Builder {
+			return ioc.RegisterSingleton(b, func(c ioc.Dic) int { return 7 })
+		}).Build()
+
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
 		ioc.GetServices[Services](c)

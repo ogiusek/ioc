@@ -15,10 +15,8 @@ type dic struct {
 	serviceRegisterMutex   *sync.Mutex
 	serviceCreationLockSet lockset.Set
 	services               *map[serviceID]Service
-	notAppliedWraps        *map[serviceID]ctorWraps
 
-	singletonCreateLockset *lockset.Set
-	singletons             *map[serviceID]any
+	singletons *map[serviceID]any
 
 	scopedCreateLockset *lockset.Set
 	scoped              map[serviceID]any
@@ -35,13 +33,11 @@ func serviceKey(serviceType reflect.Type) serviceID {
 func (c Dic) Scope() Dic {
 	return Dic{
 		c: &dic{
-			serviceRegisterMutex:   c.c.serviceRegisterMutex,
-			services:               c.c.services,
-			notAppliedWraps:        c.c.notAppliedWraps,
-			singletonCreateLockset: c.c.singletonCreateLockset,
-			singletons:             c.c.singletons,
-			scopedCreateLockset:    lockset.New(),
-			scoped:                 map[serviceID]any{},
+			serviceRegisterMutex: c.c.serviceRegisterMutex,
+			services:             c.c.services,
+			singletons:           c.c.singletons,
+			scopedCreateLockset:  lockset.New(),
+			scoped:               map[serviceID]any{},
 		},
 	}
 }
@@ -80,13 +76,11 @@ func (c Dic) Inject(servicePointer any) error {
 	case singleton:
 		existing, ok = (*c.c.singletons)[key]
 		if !ok {
-			c.c.singletonCreateLockset.Lock(key)
 			existing, ok = (*c.c.singletons)[key]
 			if !ok {
 				existing = service.creator(c)
 				(*c.c.singletons)[key] = existing
 			}
-			c.c.singletonCreateLockset.Unlock(key)
 		}
 		break
 	case scoped:
