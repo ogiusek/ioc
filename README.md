@@ -34,21 +34,21 @@ type ExampleServices struct {
 ### example registration
 
 ```go
-func exampleRegistration(c ioc.Builder) ioc.Builder {
+func exampleRegistration(b ioc.Builder) ioc.Builder {
 	// registering and wraping can be done in any order
 	// ioc.Register(Transient, Scoped, Singleton) panics when service is already registered
-	return c.
+	return b.
 		Wrap(func(b ioc.Builder) ioc.Builder { // wraps not yet registered service
-			return ioc.WrapService[ExSingleton](c, func(c ioc.Dic, s ExSingleton) ExSingleton { return s + 1 })
+			return ioc.WrapService[ExSingleton](b, func(c ioc.Dic, s ExSingleton) ExSingleton { return s + 1 })
 		}).
 		Wrap(func(b ioc.Builder) ioc.Builder { // registers service
-			return ioc.RegisterSingleton(c, func(c ioc.Dic) ExSingleton { return 7 })
+			return ioc.RegisterSingleton(b, func(c ioc.Dic) ExSingleton { return 7 })
 		}).
 		Wrap(func(b ioc.Builder) ioc.Builder { // example scoped service registration
-			return ioc.RegisterScoped(c, func(c ioc.Dic) ExScoped { return 1 })
+			return ioc.RegisterScoped(b, func(c ioc.Dic) ExScoped { return 1 })
 		}).
 		Wrap(func(b ioc.Builder) ioc.Builder { // example transient
-			return ioc.RegisterTransient(c, func(c ioc.Dic) ExTransient { return 1 })
+			return ioc.RegisterTransient(b, func(c ioc.Dic) ExTransient { return 1 })
 		})
 	// currently registered services do not need lifetime because they do not use pointers
 }
