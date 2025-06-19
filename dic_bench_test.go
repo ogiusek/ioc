@@ -4,7 +4,7 @@ import (
 	"sync"
 	"testing"
 
-	"github.com/ogiusek/ioc"
+	"github.com/ogiusek/ioc/v2"
 )
 
 // go test -bench=.
