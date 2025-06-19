@@ -1,5 +1,5 @@
 package ioc
 
 type Pkg interface {
-	Register(b Builder)
+	Register(b Builder) Builder
 }

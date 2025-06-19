@@ -133,7 +133,7 @@ func exampleGetServices(c ioc.Dic) {
 
 ```go
 type Pkg interface {
-	Register(c Builder)
+	Register(b Builder) Builder
 }
 ```
 
