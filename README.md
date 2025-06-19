@@ -19,7 +19,7 @@ import (
 	"log"
 	"reflect"
 
-	"github.com/ogiusek/ioc"
+	"github.com/ogiusek/ioc/v2"
 )
 
 type ExSingleton int
@@ -123,6 +123,10 @@ func exampleGetServices(c ioc.Dic) {
 	}
 }
 ```
+
+## notes
+
+all singletons are initialized upon build
 
 ## Contributing
 
