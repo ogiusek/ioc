@@ -37,6 +37,11 @@ type ExampleServices struct {
 func exampleRegistration(b ioc.Builder) ioc.Builder {
 	// registering and wraping can be done in any order
 	// ioc.Register(Transient, Scoped, Singleton) panics when service is already registered
+
+    // `Builder.Wrap` just wraps and does nothing
+    // example first wrap replace
+    // b = ioc.WrapService[ExSingleton](b, func(c ioc.Dic, s ExSingleton) ExSingleton { return s + 1 })
+
 	return b.
 		Wrap(func(b ioc.Builder) ioc.Builder { // wraps not yet registered service
 			return ioc.WrapService[ExSingleton](b, func(c ioc.Dic, s ExSingleton) ExSingleton { return s + 1 })
@@ -121,6 +126,14 @@ func exampleGetServices(c ioc.Dic) {
 		services := ioc.GetServices[ExampleServices](c)
 		fmt.Printf("%d\n", services.Singleton)
 	}
+}
+```
+
+### register pkg
+
+```go
+type Pkg interface {
+	Register(c Builder)
 }
 ```
 
