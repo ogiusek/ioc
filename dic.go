@@ -9,17 +9,12 @@ import (
 	"github.com/ogiusek/lockset"
 )
 
-type serviceID any
-
 type dic struct {
-	serviceRegisterMutex   *sync.Mutex
-	serviceCreationLockSet lockset.Set
-	services               *map[serviceID]Service
-
-	singletons *map[serviceID]any
+	serviceRegisterMutex *sync.Mutex
+	services             map[serviceID]Service
 
 	scopedCreateLockset *lockset.Set
-	scoped              map[serviceID]any
+	scopes              map[ScopeID]map[serviceID]any
 }
 
 type Dic struct {
@@ -30,23 +25,36 @@ func serviceKey(serviceType reflect.Type) serviceID {
 	return reflect.Zero(reflect.PointerTo(serviceType)).Interface()
 }
 
-func (c Dic) Scope() Dic {
-	return Dic{
+// can return ErrScopeDoesNotExist
+func (c Dic) TryScope(scope ScopeID) (Dic, error) {
+	if _, ok := c.c.scopes[scope]; !ok {
+		return Dic{}, errors.Join(
+			ErrScopeDoesNotExist,
+			fmt.Errorf("scope %s", scope),
+		)
+	}
+	s := Dic{
 		c: &dic{
 			serviceRegisterMutex: c.c.serviceRegisterMutex,
 			services:             c.c.services,
-			singletons:           c.c.singletons,
 			scopedCreateLockset:  lockset.New(),
-			scoped:               map[serviceID]any{},
+			scopes:               map[ScopeID]map[serviceID]any{},
 		},
 	}
+	for copiedScope, scopeServices := range c.c.scopes {
+		s.c.scopes[copiedScope] = scopeServices
+	}
+	s.c.scopes[scope] = map[serviceID]any{}
+	return s, nil
 }
 
-var (
-	ErrIsntPointer           error = errors.New("isn't a pointer")
-	ErrIsntPointerToStruct   error = errors.New("isn't a pointer to a struct")
-	ErrServiceIsntRegistered error = errors.New("service isn't registered")
-)
+func (c Dic) Scope(scope ScopeID) Dic {
+	s, err := c.TryScope(scope)
+	if err != nil {
+		panic(fmt.Sprintf("%s\n", err.Error()))
+	}
+	return s
+}
 
 // Inject replaces servicePointer value with a service from container.
 // Can return ErrServiceIsntRegistered or ErrIsntPointer
@@ -62,7 +70,7 @@ func (c Dic) Inject(servicePointer any) error {
 
 	key := serviceKey(serviceElement.Type())
 
-	service, ok := (*c.c.services)[key]
+	service, ok := c.c.services[key]
 	if !ok {
 		return errors.Join(
 			ErrServiceIsntRegistered,
@@ -74,23 +82,29 @@ func (c Dic) Inject(servicePointer any) error {
 
 	switch service.lifetime {
 	case singleton:
-		existing, ok = (*c.c.singletons)[key]
-		if !ok {
-			existing, ok = (*c.c.singletons)[key]
-			if !ok {
-				existing = service.creator(c)
-				(*c.c.singletons)[key] = existing
+		if service.additional == nil {
+			c.c.scopedCreateLockset.Lock(key)
+			service.additional = SingletonAdditional{
+				Service: service.creator(c),
 			}
+			c.c.services[key] = service
+			c.c.scopedCreateLockset.Unlock(key)
 		}
+		existing = service.additional.(SingletonAdditional).Service
 		break
 	case scoped:
-		existing, ok = c.c.scoped[key]
+		additional := service.additional.(ScopedAdditional)
+		scope, ok := c.c.scopes[additional.Scope]
+		if !ok {
+			return ErrScopeIsNotInitialized
+		}
+		existing, ok = scope[key]
 		if !ok {
 			c.c.scopedCreateLockset.Lock(key)
-			existing, ok = c.c.scoped[key]
+			existing, ok = c.c.scopes[key]
 			if !ok {
 				existing = service.creator(c)
-				c.c.scoped[key] = existing
+				scope[key] = existing
 			}
 			c.c.scopedCreateLockset.Unlock(key)
 		}

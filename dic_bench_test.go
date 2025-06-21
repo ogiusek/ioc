@@ -23,29 +23,31 @@ func BenchmarkGetTransient(b *testing.B) {
 }
 
 func BenchmarkGetScoped(b *testing.B) {
+	scope := ioc.ScopeID("")
 	initial := 1
-	c := ioc.NewBuilder().
-		Wrap(func(b ioc.Builder) ioc.Builder {
-			return ioc.RegisterScoped(b, func(c ioc.Dic) int { return initial })
-		}).Build()
-	scope := ioc.Scope(c)
+	builder := ioc.NewBuilder()
+	ioc.RegisterScoped(builder, scope, func(c ioc.Dic) int { return initial })
+	builder.RegisterScope(scope)
+	c := builder.Build()
+	s := c.Scope(scope)
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ioc.Get[int](scope)
+		ioc.Get[int](s)
 	}
 }
 
 func BenchmarkScopeCreation(b *testing.B) {
+	scope := ioc.ScopeID("")
 	initial := 1
-	c := ioc.NewBuilder().
-		Wrap(func(b ioc.Builder) ioc.Builder {
-			return ioc.RegisterScoped(b, func(d ioc.Dic) int { return initial })
-		}).Build()
+	builder := ioc.NewBuilder()
+	ioc.RegisterScoped(builder, scope, func(d ioc.Dic) int { return initial })
+	builder.RegisterScope(scope)
+	c := builder.Build()
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		ioc.Scope(c)
+		c.Scope(scope)
 	}
 }
 

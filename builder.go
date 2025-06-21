@@ -8,9 +8,14 @@ import (
 	"github.com/ogiusek/lockset"
 )
 
+type ScopeID any
+type serviceID any
+
 type builder struct {
-	notAppliedWraps map[serviceID]ctorWraps
-	services        map[serviceID]Service
+	notAppliedWraps       map[serviceID]ctorWraps
+	services              map[serviceID]Service
+	eagerSingletonLoading bool
+	scopes                map[ScopeID]struct{}
 }
 
 type Builder struct {
@@ -20,32 +25,62 @@ type Builder struct {
 func NewBuilder() Builder {
 	return Builder{
 		b: &builder{
-			notAppliedWraps: map[serviceID]ctorWraps{},
-			services:        map[serviceID]Service{},
+			notAppliedWraps:       map[serviceID]ctorWraps{},
+			services:              map[serviceID]Service{},
+			eagerSingletonLoading: true,
+			scopes:                map[ScopeID]struct{}{},
 		},
 	}
 }
 
-func (b Builder) Build() Dic {
-	singletons := map[serviceID]any{}
-	c := Dic{
-		&dic{
-			serviceRegisterMutex:   &sync.Mutex{},
-			serviceCreationLockSet: *lockset.New(),
-			services:               &b.b.services,
-			singletons:             &singletons,
-			scopedCreateLockset:    lockset.New(),
-			scoped:                 map[serviceID]any{},
+func (b Builder) Clone() Builder {
+	clonedB := Builder{
+		b: &builder{
+			notAppliedWraps:       make(map[serviceID]ctorWraps, len(b.b.notAppliedWraps)),
+			services:              make(map[serviceID]Service, len(b.b.services)),
+			eagerSingletonLoading: b.b.eagerSingletonLoading,
+			scopes:                make(map[ScopeID]struct{}, len(b.b.scopes)),
 		},
 	}
-	for key, service := range b.b.services {
-		if service.lifetime != singleton {
-			continue
+	for key, val := range b.b.notAppliedWraps {
+		clonedB.b.notAppliedWraps[key] = val
+	}
+	for key, val := range b.b.services {
+		clonedB.b.services[key] = val
+	}
+	for key, val := range b.b.scopes {
+		clonedB.b.scopes[key] = val
+	}
+	return clonedB
+}
+
+func (b Builder) Build() Dic {
+	services := b.b.services
+	c := Dic{
+		c: &dic{
+			serviceRegisterMutex: &sync.Mutex{},
+			services:             services,
+			scopedCreateLockset:  lockset.New(),
+			scopes:               map[ScopeID]map[serviceID]any{},
+		},
+	}
+	for scopeId := range b.b.scopes {
+		c.c.scopes[scopeId] = map[serviceID]any{}
+	}
+	if b.b.eagerSingletonLoading {
+		for key, service := range b.b.services {
+			if service.lifetime != singleton {
+				continue
+			}
+			if service.additional == nil {
+				c.c.scopedCreateLockset.Lock(key)
+				service.additional = SingletonAdditional{
+					Service: service.creator(c),
+				}
+				b.b.services[key] = service
+				c.c.scopedCreateLockset.Unlock(key)
+			}
 		}
-		if _, ok := singletons[key]; ok {
-			continue
-		}
-		singletons[key] = service.creator(c)
 	}
 	return c
 }
@@ -65,13 +100,13 @@ func RegisterSingleton[T any](b Builder, creator func(c Dic) T) Builder {
 	return ensureWrapped[T](b)
 }
 
-func RegisterScoped[T any](b Builder, creator func(c Dic) T) Builder {
+func RegisterScoped[T any](b Builder, scope ScopeID, creator func(c Dic) T) Builder {
 	key := typeKey[T]()
 	if _, ok := b.b.services[key]; ok {
 		var t T
 		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
 	}
-	service := newScoped(func(c Dic) any { return creator(c) })
+	service := newScoped(scope, func(c Dic) any { return creator(c) })
 	b.b.services[key] = service
 	return ensureWrapped[T](b)
 }
@@ -122,4 +157,12 @@ func WrapService[T any](b Builder, wrap func(c Dic, s T) T) Builder {
 	originalWraps.wrap(wraps)
 	b.b.notAppliedWraps[key] = originalWraps
 	return b
+}
+
+func (b Builder) RegisterScope(scope ScopeID) {
+	b.b.scopes[scope] = struct{}{}
+}
+
+func (b Builder) LazySingletonLoading() {
+	b.b.eagerSingletonLoading = false
 }

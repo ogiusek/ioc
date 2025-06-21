@@ -1,8 +1,19 @@
 package ioc
 
+type ScopedAdditional struct {
+	Scope ScopeID
+}
+
+type SingletonAdditional struct {
+	Service any
+}
+
 type Service struct {
 	creator  func(Dic) any
 	lifetime lifetime
+	// initialized service for singleton
+	// scope name for scoped
+	additional any
 }
 
 func newSingleton(creator func(Dic) any) Service {
@@ -12,10 +23,11 @@ func newSingleton(creator func(Dic) any) Service {
 	}
 }
 
-func newScoped(creator func(Dic) any) Service {
+func newScoped(scope ScopeID, creator func(Dic) any) Service {
 	return Service{
-		creator:  creator,
-		lifetime: scoped,
+		creator:    creator,
+		lifetime:   scoped,
+		additional: ScopedAdditional{Scope: scope},
 	}
 }
 

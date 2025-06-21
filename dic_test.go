@@ -110,7 +110,7 @@ func RunContainerTestsForType[Service any](
 			defer func() {
 				if r := recover(); r != nil {
 					afterPanic()
-					t.Errorf("container shouldn't panic when injecting not existing service")
+					t.Errorf("container shouldn't panic when injecting not existing service: %s", r)
 				}
 			}()
 			var service Service
@@ -128,9 +128,10 @@ func RunContainerTestsForType[Service any](
 			defer func() {
 				if r := recover(); r != nil {
 					afterPanic()
-					t.Errorf("container panics when retriving registered service")
+					t.Errorf("container panics when retriving registered service: %s", r)
 				}
 			}()
+			b := b.Clone()
 
 			c := b.Build()
 			s := ioc.Get[Service](c)
@@ -148,6 +149,7 @@ func RunContainerTestsForType[Service any](
 					t.Errorf("container panics when injecting registered service")
 				}
 			}()
+			b := b.Clone()
 
 			c := b.Build()
 			var service Service
@@ -163,12 +165,13 @@ func RunContainerTestsForType[Service any](
 			defer func() {
 				if r := recover(); r != nil {
 					afterPanic()
-					t.Errorf("container panics when injecting singleton service requiring service")
+					t.Errorf("container panics when injecting singleton service requiring service: %s", r)
 				}
 			}()
 
+			b := b.Clone()
 			type RequiringService struct{ Service Service }
-			b := ioc.RegisterSingleton(b, func(c ioc.Dic) RequiringService { return RequiringService{Service: ioc.Get[Service](c)} })
+			ioc.RegisterSingleton(b, func(c ioc.Dic) RequiringService { return RequiringService{Service: ioc.Get[Service](c)} })
 			c := b.Build()
 			var service RequiringService
 			c.Inject(&service)
@@ -187,11 +190,13 @@ func RunContainerTestsForType[Service any](
 				}
 			}()
 
+			b := b.Clone()
+			scope := ioc.ScopeID("")
 			type RequiringService struct{ Service Service }
-			b := ioc.RegisterScoped(b, func(c ioc.Dic) RequiringService { return RequiringService{Service: ioc.Get[Service](c)} })
+			ioc.RegisterScoped(b, scope, func(c ioc.Dic) RequiringService { return RequiringService{Service: ioc.Get[Service](c)} })
+			b.RegisterScope(scope)
 			c := b.Build()
-			var service RequiringService
-			c.Inject(&service)
+			service := ioc.Get[RequiringService](c)
 
 			if !equal(service.Service, serviceA) {
 				t.Errorf("retrieved service is not equal to registered service")
@@ -207,8 +212,9 @@ func RunContainerTestsForType[Service any](
 				}
 			}()
 
+			b := b.Clone()
 			type RequiringService struct{ Service Service }
-			b := ioc.RegisterTransient(b, func(c ioc.Dic) RequiringService { return RequiringService{Service: ioc.Get[Service](c)} })
+			ioc.RegisterTransient(b, func(c ioc.Dic) RequiringService { return RequiringService{Service: ioc.Get[Service](c)} })
 			c := b.Build()
 			var service RequiringService
 			c.Inject(&service)
@@ -227,6 +233,7 @@ func RunContainerTestsForType[Service any](
 				}
 			}()
 
+			b := b.Clone()
 			type Services struct {
 				A Service `inject:"1"`
 				B Service `inject:"0"`
@@ -260,6 +267,7 @@ func RunContainerTestsForType[Service any](
 				}
 			}()
 
+			b := b.Clone()
 			type Services struct {
 				A Service `inject:"1"`
 				B Service `inject:"0"`
@@ -294,8 +302,10 @@ func RunContainerTestsForType[Service any](
 	}
 	{
 		b := ioc.NewBuilder()
+		scope := ioc.ScopeID("injected scope")
+		b.RegisterScope(scope)
 		testBeforeRegisteredService(b)
-		ioc.RegisterScoped(b, func(c ioc.Dic) Service { return serviceA })
+		ioc.RegisterScoped(b, scope, func(c ioc.Dic) Service { return serviceA })
 		testsOnRegisteredService(b)
 	}
 	{
@@ -349,19 +359,21 @@ func RunContainerTestsForType[Service any](
 	}
 	{ // test scoped specific behaviour
 		b := ioc.NewBuilder()
+		scope := ioc.ScopeID("")
 		testBeforeRegisteredService(b)
-		b = ioc.RegisterSingleton(b, func(c ioc.Dic) *bool {
+		ioc.RegisterSingleton(b, func(c ioc.Dic) *bool {
 			toggler := false
 			return &toggler
 		})
-		b = ioc.RegisterScoped(b, func(c ioc.Dic) Service { return register(ioc.Get[*bool](c)) })
+		b.RegisterScope(scope)
+		ioc.RegisterScoped(b, scope, func(c ioc.Dic) Service { return register(ioc.Get[*bool](c)) })
 
 		// test retriving service
 		t.Run("panics", func(t *testing.T) {
 			defer func() {
 				if r := recover(); r != nil {
 					afterPanic()
-					t.Errorf("container panics when retriving registered scoped service")
+					t.Errorf("container panics when retriving registered scoped service: %s", r)
 				}
 			}()
 
@@ -384,26 +396,24 @@ func RunContainerTestsForType[Service any](
 			c := b.Build()
 
 			for i := 0; i < 10; i++ {
-				expectA(c)
-			}
-
-			for i := 0; i < 10; i++ {
 				if i%2 == 0 {
-					c := c.Scope()
-					expectB(c)
-					expectB(c)
+					c := c.Scope(scope)
+					expectA(c)
+					expectA(c)
 				} else {
-					c := c.Scope()
-					expectA(c)
-					expectA(c)
+					c := c.Scope(scope)
+					expectB(c)
+					expectB(c)
 				}
 			}
 		})
 	}
 	{ // test transient spefic behaviour
 		b := ioc.NewBuilder()
+		scope := ioc.ScopeID("tt")
 		testBeforeRegisteredService(b)
 		var toggler bool
+		b.RegisterScope(scope)
 		b = ioc.RegisterTransient(b, func(c ioc.Dic) Service { return register(&toggler) })
 		c := b.Build()
 
@@ -412,7 +422,7 @@ func RunContainerTestsForType[Service any](
 			defer func() {
 				if r := recover(); r != nil {
 					afterPanic()
-					t.Errorf("container panics when retriving registered transient service")
+					t.Errorf("container panics when retriving registered transient service: %s", r)
 				}
 			}()
 
@@ -441,7 +451,7 @@ func RunContainerTestsForType[Service any](
 			}
 
 			for i := 0; i < 10; i++ {
-				c := c.Scope()
+				c := c.Scope(scope)
 				expectA(c)
 				expectB(c)
 			}

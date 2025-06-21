@@ -15,7 +15,7 @@ func typeKey[T any]() serviceID {
 func TryGet[T any](c Dic) (T, error) {
 	key := typeKey[T]()
 
-	service, ok := (*c.c.services)[key]
+	service, ok := c.c.services[key]
 	if !ok {
 		var t T
 		return t, errors.Join(
@@ -28,23 +28,30 @@ func TryGet[T any](c Dic) (T, error) {
 
 	switch service.lifetime {
 	case singleton:
-		res, ok = (*c.c.singletons)[key]
-		if !ok {
-			res, ok = (*c.c.singletons)[key]
-			if !ok {
-				res = service.creator(c)
-				(*c.c.singletons)[key] = res
+		if service.additional == nil {
+			c.c.scopedCreateLockset.Lock(key)
+			service.additional = SingletonAdditional{
+				Service: service.creator(c),
 			}
+			c.c.services[key] = service
+			c.c.scopedCreateLockset.Unlock(key)
 		}
+		res = service.additional.(SingletonAdditional).Service
 		break
 	case scoped:
-		res, ok = c.c.scoped[key]
+		additional := service.additional.(ScopedAdditional)
+		scope, ok := c.c.scopes[additional.Scope]
+		if !ok {
+			var t T
+			return t, ErrScopeIsNotInitialized
+		}
+		res, ok = scope[key]
 		if !ok {
 			c.c.scopedCreateLockset.Lock(key)
-			res, ok = c.c.scoped[key]
+			res, ok = c.c.scopes[key]
 			if !ok {
 				res = service.creator(c)
-				c.c.scoped[key] = res
+				scope[key] = res
 			}
 			c.c.scopedCreateLockset.Unlock(key)
 		}
@@ -95,9 +102,4 @@ func GetServices[T any](c Dic) T {
 		panic(err.Error())
 	}
 	return res
-}
-
-// Returns new Scope
-func Scope(c Dic) Dic {
-	return c.Scope()
 }
