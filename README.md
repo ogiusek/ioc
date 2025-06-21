@@ -22,6 +22,8 @@ import (
 	"github.com/ogiusek/ioc/v2"
 )
 
+var MyScope ioc.ScopeID = "my scope"
+
 type ExSingleton int
 type ExScoped int
 type ExTransient int
@@ -34,7 +36,7 @@ type ExampleServices struct {
 ### example registration
 
 ```go
-func exampleRegistration(b ioc.Builder) ioc.Builder {
+func exampleRegistration(b ioc.Builder) {
 	// registering and wraping can be done in any order
 	// ioc.Register(Transient, Scoped, Singleton) panics when service is already registered
 
@@ -42,19 +44,15 @@ func exampleRegistration(b ioc.Builder) ioc.Builder {
     // example first wrap replace
     // b = ioc.WrapService[ExSingleton](b, func(c ioc.Dic, s ExSingleton) ExSingleton { return s + 1 })
 
-	return b.
-		Wrap(func(b ioc.Builder) ioc.Builder { // wraps not yet registered service
-			return ioc.WrapService[ExSingleton](b, func(c ioc.Dic, s ExSingleton) ExSingleton { return s + 1 })
-		}).
-		Wrap(func(b ioc.Builder) ioc.Builder { // registers service
-			return ioc.RegisterSingleton(b, func(c ioc.Dic) ExSingleton { return 7 })
-		}).
-		Wrap(func(b ioc.Builder) ioc.Builder { // example scoped service registration
-			return ioc.RegisterScoped(b, func(c ioc.Dic) ExScoped { return 1 })
-		}).
-		Wrap(func(b ioc.Builder) ioc.Builder { // example transient
-			return ioc.RegisterTransient(b, func(c ioc.Dic) ExTransient { return 1 })
-		})
+    // wraps not yet registered service
+	ioc.WrapService[ExSingleton](b, func(c ioc.Dic, s ExSingleton) ExSingleton { return s + 1 })
+    // registers service
+	ioc.RegisterSingleton(b, func(c ioc.Dic) ExSingleton { return 7 })
+    // example scoped service registration
+	ioc.RegisterScoped(b, MyScope, func(c ioc.Dic) ExScoped { return 1 })
+    // example transient
+	ioc.RegisterTransient(b, func(c ioc.Dic) ExTransient { return 1 })
+
 	// currently registered services do not need lifetime because they do not use pointers
 }
 ```
@@ -63,7 +61,7 @@ func exampleRegistration(b ioc.Builder) ioc.Builder {
 
 ```go
 func exampleScope(c ioc.Dic) {
-	scope := c.Scope() // example scope creation (its useless in current example. its just an example)
+	scope := c.Scope(MyScope) // example scope creation (its useless in current example. its just an example)
 	ioc.Get[ExSingleton](scope)
 }
 ```
