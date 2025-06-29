@@ -42,10 +42,11 @@ func exampleRegistration(b ioc.Builder) {
 
     // `Builder.Wrap` just wraps and does nothing
     // example first wrap replace
-    // b = ioc.WrapService[ExSingleton](b, func(c ioc.Dic, s ExSingleton) ExSingleton { return s + 1 })
+    // b = ioc.WrapService[ExSingleton](b, ioc.DefaultOrder, func(c ioc.Dic, s ExSingleton) ExSingleton { return s + 1 })
 
-    // wraps not yet registered service
-	ioc.WrapService[ExSingleton](b, func(c ioc.Dic, s ExSingleton) ExSingleton { return s + 1 })
+    // can wrap not yet registered service
+    // if some service has custom order than default order shouldn't be used
+	ioc.WrapService[ExSingleton](b, ioc.DefaultOrder, func(c ioc.Dic, s ExSingleton) ExSingleton { return s + 1 })
     // registers service
 	ioc.RegisterSingleton(b, func(c ioc.Dic) ExSingleton { return 7 })
     // example scoped service registration

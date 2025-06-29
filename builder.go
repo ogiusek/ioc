@@ -3,6 +3,7 @@ package ioc
 import (
 	"log"
 	"reflect"
+	"sort"
 	"sync"
 
 	"github.com/ogiusek/lockset"
@@ -12,7 +13,7 @@ type ScopeID any
 type serviceID any
 
 type builder struct {
-	notAppliedWraps       map[serviceID]ctorWraps
+	wraps                 map[serviceID][]ctorWrap
 	services              map[serviceID]Service
 	eagerSingletonLoading bool
 	scopes                map[ScopeID]struct{}
@@ -25,7 +26,7 @@ type Builder struct {
 func NewBuilder() Builder {
 	return Builder{
 		b: &builder{
-			notAppliedWraps:       map[serviceID]ctorWraps{},
+			wraps:                 map[serviceID][]ctorWrap{},
 			services:              map[serviceID]Service{},
 			eagerSingletonLoading: true,
 			scopes:                map[ScopeID]struct{}{},
@@ -36,14 +37,18 @@ func NewBuilder() Builder {
 func (b Builder) Clone() Builder {
 	clonedB := Builder{
 		b: &builder{
-			notAppliedWraps:       make(map[serviceID]ctorWraps, len(b.b.notAppliedWraps)),
+			wraps:                 make(map[serviceID][]ctorWrap, len(b.b.wraps)),
 			services:              make(map[serviceID]Service, len(b.b.services)),
 			eagerSingletonLoading: b.b.eagerSingletonLoading,
 			scopes:                make(map[ScopeID]struct{}, len(b.b.scopes)),
 		},
 	}
-	for key, val := range b.b.notAppliedWraps {
-		clonedB.b.notAppliedWraps[key] = val
+	for key, val := range b.b.wraps {
+		wraps := make([]ctorWrap, 0, len(val))
+		for _, val := range val {
+			wraps = append(wraps, val)
+		}
+		clonedB.b.wraps[key] = wraps
 	}
 	for key, val := range b.b.services {
 		clonedB.b.services[key] = val
@@ -54,8 +59,36 @@ func (b Builder) Clone() Builder {
 	return clonedB
 }
 
+type ctorWraps []ctorWrap
+
+func (a ctorWraps) Len() int      { return len(a) }
+func (a ctorWraps) Swap(i, j int) { a[i], a[j] = a[j], a[i] }
+func (a ctorWraps) Less(i, j int) bool {
+	if a[i].order != a[j].order {
+		return a[i].order < a[j].order
+	}
+	return false
+}
+
 func (b Builder) Build() Dic {
 	services := b.b.services
+	for key, service := range services {
+		wraps, ok := b.b.wraps[key]
+		if !ok || len(wraps) == 0 {
+			continue
+		}
+		sort.Sort(ctorWraps(wraps))
+		ctor := service.creator
+		w := []ctorWrap(wraps)
+		service.creator = func(d Dic) any {
+			s := ctor(d)
+			for _, wrap := range w {
+				s = wrap.wraps(d, s)
+			}
+			return s
+		}
+		services[key] = service
+	}
 	c := Dic{
 		c: &dic{
 			serviceRegisterMutex: &sync.Mutex{},
@@ -97,7 +130,7 @@ func RegisterSingleton[T any](b Builder, creator func(c Dic) T) Builder {
 	}
 	service := newSingleton(func(c Dic) any { return creator(c) })
 	b.b.services[key] = service
-	return ensureWrapped[T](b)
+	return b
 }
 
 func RegisterScoped[T any](b Builder, scope ScopeID, creator func(c Dic) T) Builder {
@@ -108,7 +141,7 @@ func RegisterScoped[T any](b Builder, scope ScopeID, creator func(c Dic) T) Buil
 	}
 	service := newScoped(scope, func(c Dic) any { return creator(c) })
 	b.b.services[key] = service
-	return ensureWrapped[T](b)
+	return b
 }
 
 func RegisterTransient[T any](b Builder, creator func(c Dic) T) Builder {
@@ -119,43 +152,20 @@ func RegisterTransient[T any](b Builder, creator func(c Dic) T) Builder {
 	}
 	service := newTransient(func(c Dic) any { return creator(c) })
 	b.b.services[key] = service
-	return ensureWrapped[T](b)
-}
-
-func ensureWrapped[T any](b Builder) Builder {
-	key := typeKey[T]()
-	notAppliedWraps, ok := b.b.notAppliedWraps[key]
-	if !ok {
-		return b
-	}
-	s, ok := b.b.services[key]
-	if !ok {
-		return b
-	}
-	s.wrap(notAppliedWraps)
-	b.b.services[key] = s
-	delete(b.b.notAppliedWraps, key)
 	return b
 }
 
-func WrapService[T any](b Builder, wrap func(c Dic, s T) T) Builder {
-	wraps := newCtorWrap(wrap)
+// wraps with the smallest id are applied first
+// wraps with the same order are applied randomly
+func WrapService[T any](b Builder, order Order, wrap func(c Dic, s T) T) Builder {
 	key := typeKey[T]()
-	s, ok := b.b.services[key]
-	if ok {
-		s.wrap(wraps)
-		b.b.services[key] = s
-		return b
+	wraps := newCtorWrap(order, wrap)
+
+	if _, ok := b.b.wraps[key]; !ok {
+		b.b.wraps[key] = make([]ctorWrap, 0, 1)
 	}
 
-	originalWraps, ok := b.b.notAppliedWraps[key]
-	if !ok {
-		b.b.notAppliedWraps[key] = wraps
-		return b
-	}
-
-	originalWraps.wrap(wraps)
-	b.b.notAppliedWraps[key] = originalWraps
+	b.b.wraps[key] = append(b.b.wraps[key], wraps)
 	return b
 }
 
