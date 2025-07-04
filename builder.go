@@ -264,7 +264,7 @@ func WrapService[T any](b Builder, order Order, wrap func(c Dic, s T) T) Builder
 	return b
 }
 
-func AddDependencies[T any](b Builder, dependencies []reflect.Type) Builder {
+func RegisterDependencies[T any](b Builder, dependencies ...reflect.Type) Builder {
 	tType := reflect.TypeFor[T]()
 	b.b.dependencies[tType] = append(b.b.dependencies[tType], dependencies...)
 	return b
