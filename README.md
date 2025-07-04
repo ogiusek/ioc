@@ -46,7 +46,12 @@ func exampleRegistration(b ioc.Builder) {
 
     // can wrap not yet registered service
     // if some service has custom order than default order shouldn't be used
-	ioc.WrapService[ExSingleton](b, ioc.DefaultOrder, func(c ioc.Dic, s ExSingleton) ExSingleton { return s + 1 })
+	ioc.WrapService[ExSingleton](b, ioc.DefaultOrder, func(c ioc.Dic, s ExSingleton) ExSingleton {
+		return ExSingleton(int(s) + int(ioc.Get[ExTransient](c)))
+    })
+    // this is optional. it adds compile time safety.
+    // when we add dependencies container can panic with ErrCircularDependency or ErrMissingDependency
+    ioc.AddDependencies[ExSingleton](b, []reflect.Type{ reflect.TypeFor[ExTransient]() })
     // registers service
 	ioc.RegisterSingleton(b, func(c ioc.Dic) ExSingleton { return 7 })
     // example scoped service registration
