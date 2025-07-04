@@ -51,7 +51,9 @@ func exampleRegistration(b ioc.Builder) {
     })
     // this is optional. it adds compile time safety.
     // when we add dependencies container can panic with ErrCircularDependency or ErrMissingDependency
-    ioc.AddDependencies[ExSingleton](b, []reflect.Type{ reflect.TypeFor[ExTransient]() })
+	ioc.RegisterDependencies[ExSingleton](b, reflect.TypeFor[ExTransient]())
+    // other way of adding dependencies
+	ioc.RegisterDependency[ExSingleton, ExTransient](b)
     // registers service
 	ioc.RegisterSingleton(b, func(c ioc.Dic) ExSingleton { return 7 })
     // example scoped service registration

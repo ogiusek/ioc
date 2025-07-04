@@ -214,46 +214,46 @@ func (b Builder) Wrap(wrap func(Builder) Builder) Builder {
 	return wrap(b)
 }
 
-func RegisterSingleton[T any](b Builder, creator func(c Dic) T) Builder {
-	key := typeKey[T]()
+func RegisterSingleton[Service any](b Builder, creator func(c Dic) Service) Builder {
+	key := typeKey[Service]()
 	if _, ok := b.b.services[key]; ok {
-		var t T
+		var t Service
 		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
 	}
 	service := newSingleton(func(c Dic) any { return creator(c) })
 	b.b.services[key] = service
-	b.b.dependencies[reflect.TypeFor[T]()] = nil
+	b.b.dependencies[reflect.TypeFor[Service]()] = nil
 	return b
 }
 
-func RegisterScoped[T any](b Builder, scope ScopeID, creator func(c Dic) T) Builder {
-	key := typeKey[T]()
+func RegisterScoped[Service any](b Builder, scope ScopeID, creator func(c Dic) Service) Builder {
+	key := typeKey[Service]()
 	if _, ok := b.b.services[key]; ok {
-		var t T
+		var t Service
 		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
 	}
 	service := newScoped(scope, func(c Dic) any { return creator(c) })
 	b.b.services[key] = service
-	b.b.dependencies[reflect.TypeFor[T]()] = nil
+	b.b.dependencies[reflect.TypeFor[Service]()] = nil
 	return b
 }
 
-func RegisterTransient[T any](b Builder, creator func(c Dic) T) Builder {
-	key := typeKey[T]()
+func RegisterTransient[Service any](b Builder, creator func(c Dic) Service) Builder {
+	key := typeKey[Service]()
 	if _, ok := b.b.services[key]; ok {
-		var t T
+		var t Service
 		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
 	}
 	service := newTransient(func(c Dic) any { return creator(c) })
 	b.b.services[key] = service
-	b.b.dependencies[reflect.TypeFor[T]()] = nil
+	b.b.dependencies[reflect.TypeFor[Service]()] = nil
 	return b
 }
 
 // wraps with the smallest id are applied first
 // wraps with the same order are applied randomly
-func WrapService[T any](b Builder, order Order, wrap func(c Dic, s T) T) Builder {
-	key := typeKey[T]()
+func WrapService[Service any](b Builder, order Order, wrap func(c Dic, s Service) Service) Builder {
+	key := typeKey[Service]()
 	wraps := newCtorWrap(order, wrap)
 
 	if _, ok := b.b.wraps[key]; !ok {
@@ -264,9 +264,15 @@ func WrapService[T any](b Builder, order Order, wrap func(c Dic, s T) T) Builder
 	return b
 }
 
-func RegisterDependencies[T any](b Builder, dependencies ...reflect.Type) Builder {
-	tType := reflect.TypeFor[T]()
+func RegisterDependencies[Service any](b Builder, dependencies ...reflect.Type) Builder {
+	tType := reflect.TypeFor[Service]()
 	b.b.dependencies[tType] = append(b.b.dependencies[tType], dependencies...)
+	return b
+}
+
+func RegisterDependency[Service any, Dependency any](b Builder) Builder {
+	tType := reflect.TypeFor[Service]()
+	b.b.dependencies[tType] = append(b.b.dependencies[tType], reflect.TypeFor[Dependency]())
 	return b
 }
 
