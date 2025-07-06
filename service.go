@@ -40,7 +40,9 @@ func newTransient(creator func(Dic) any) Service {
 
 type Order int
 
-var DefaultOrder Order = 0
+const (
+	DefaultOrder = iota
+)
 
 type ctorWrap struct {
 	order Order

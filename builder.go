@@ -12,6 +12,12 @@ import (
 )
 
 type ScopeID any
+
+var (
+	ScopeSingleton ScopeID = struct{}{}
+	ScopeTransient ScopeID = struct{}{}
+)
+
 type serviceID any
 
 type builder struct {
@@ -227,6 +233,12 @@ func RegisterSingleton[Service any](b Builder, creator func(c Dic) Service) Buil
 }
 
 func RegisterScoped[Service any](b Builder, scope ScopeID, creator func(c Dic) Service) Builder {
+	if scope == ScopeSingleton {
+		return RegisterSingleton(b, creator)
+	}
+	if scope == ScopeTransient {
+		return RegisterTransient(b, creator)
+	}
 	key := typeKey[Service]()
 	if _, ok := b.b.services[key]; ok {
 		var t Service
@@ -276,7 +288,14 @@ func RegisterDependency[Service any, Dependency any](b Builder) Builder {
 	return b
 }
 
+// panics when attempting to regsiter ScopeSingleton or ScopeTransient
 func (b Builder) RegisterScope(scope ScopeID) {
+	if scope == ScopeSingleton {
+		panic(ErrScopeDoesNotExist)
+	}
+	if scope == ScopeTransient {
+		panic(ErrScopeDoesNotExist)
+	}
 	b.b.scopes[scope] = struct{}{}
 }
 
