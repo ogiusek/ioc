@@ -11,7 +11,8 @@ import (
 
 type dic struct {
 	serviceRegisterMutex *sync.Mutex
-	services             map[serviceID]Service
+	services             map[serviceID]service
+	eagerScopedServices  map[ScopeID][]serviceID
 
 	scopedCreateLockset *lockset.Set
 	scopes              map[ScopeID]map[serviceID]any
@@ -22,7 +23,7 @@ type Dic struct {
 }
 
 func serviceKey(serviceType reflect.Type) serviceID {
-	return reflect.Zero(reflect.PointerTo(serviceType)).Interface()
+	return serviceType
 }
 
 // can return ErrScopeDoesNotExist
@@ -38,6 +39,7 @@ func (c Dic) TryScope(scope ScopeID) (Dic, error) {
 			serviceRegisterMutex: c.c.serviceRegisterMutex,
 			services:             c.c.services,
 			scopedCreateLockset:  lockset.New(),
+			eagerScopedServices:  c.c.eagerScopedServices,
 			scopes:               map[ScopeID]map[serviceID]any{},
 		},
 	}
@@ -45,6 +47,10 @@ func (c Dic) TryScope(scope ScopeID) (Dic, error) {
 		s.c.scopes[copiedScope] = scopeServices
 	}
 	s.c.scopes[scope] = map[serviceID]any{}
+	for _, serviceID := range c.c.eagerScopedServices[scope] {
+		service := c.c.services[serviceID]
+		c.c.scopes[scope][serviceID] = service.creator(c)
+	}
 	return s, nil
 }
 
@@ -84,16 +90,16 @@ func (c Dic) Inject(servicePointer any) error {
 	case singleton:
 		if service.additional == nil {
 			c.c.scopedCreateLockset.Lock(key)
-			service.additional = SingletonAdditional{
+			service.additional = singletonAdditional{
 				Service: service.creator(c),
 			}
 			c.c.services[key] = service
 			c.c.scopedCreateLockset.Unlock(key)
 		}
-		existing = service.additional.(SingletonAdditional).Service
+		existing = service.additional.(singletonAdditional).Service
 		break
 	case scoped:
-		additional := service.additional.(ScopedAdditional)
+		additional := service.additional.(scopedAdditional)
 		scope, ok := c.c.scopes[additional.Scope]
 		if !ok {
 			return ErrScopeIsNotInitialized

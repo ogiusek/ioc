@@ -23,8 +23,9 @@ type serviceID any
 type builder struct {
 	wraps                 map[serviceID][]ctorWrap
 	dependencies          map[reflect.Type][]reflect.Type
-	services              map[serviceID]Service
+	services              map[serviceID]service
 	eagerSingletonLoading bool
+	eagerScoped           []serviceID
 	scopes                map[ScopeID]struct{}
 }
 
@@ -37,7 +38,7 @@ func NewBuilder() Builder {
 		b: &builder{
 			wraps:                 map[serviceID][]ctorWrap{},
 			dependencies:          map[reflect.Type][]reflect.Type{},
-			services:              map[serviceID]Service{},
+			services:              map[serviceID]service{},
 			eagerSingletonLoading: true,
 			scopes:                map[ScopeID]struct{}{},
 		},
@@ -45,26 +46,38 @@ func NewBuilder() Builder {
 }
 
 func (b Builder) Clone() Builder {
+	clonedWraps := make(map[serviceID][]ctorWrap)
+	for k, v := range b.b.wraps {
+		clonedWraps[k] = append([]ctorWrap{}, v...)
+	}
+
+	clonedDependencies := make(map[reflect.Type][]reflect.Type)
+	for k, v := range b.b.dependencies {
+		clonedDependencies[k] = append([]reflect.Type{}, v...)
+	}
+
+	clonedServices := make(map[serviceID]service)
+	for k, v := range b.b.services {
+		clonedServices[k] = v
+	}
+
+	clonedScopes := make(map[ScopeID]struct{})
+	for k, v := range b.b.scopes {
+		clonedScopes[k] = v
+	}
+
+	clonedEagerScoped := make([]serviceID, len(b.b.eagerScoped))
+	copy(clonedEagerScoped, b.b.eagerScoped)
+
 	clonedB := Builder{
 		b: &builder{
-			wraps:                 make(map[serviceID][]ctorWrap, len(b.b.wraps)),
-			services:              make(map[serviceID]Service, len(b.b.services)),
+			wraps:                 clonedWraps,
+			dependencies:          clonedDependencies,
+			services:              clonedServices,
 			eagerSingletonLoading: b.b.eagerSingletonLoading,
-			scopes:                make(map[ScopeID]struct{}, len(b.b.scopes)),
+			eagerScoped:           clonedEagerScoped,
+			scopes:                clonedScopes,
 		},
-	}
-	for key, val := range b.b.wraps {
-		wraps := make([]ctorWrap, 0, len(val))
-		for _, val := range val {
-			wraps = append(wraps, val)
-		}
-		clonedB.b.wraps[key] = wraps
-	}
-	for key, val := range b.b.services {
-		clonedB.b.services[key] = val
-	}
-	for key, val := range b.b.scopes {
-		clonedB.b.scopes[key] = val
 	}
 	return clonedB
 }
@@ -78,6 +91,94 @@ func (a ctorWraps) Less(i, j int) bool {
 		return a[i].order < a[j].order
 	}
 	return false
+}
+
+func (b Builder) Wrap(wrap func(Builder) Builder) Builder {
+	return wrap(b)
+}
+
+func RegisterSingleton[Service any](b Builder, creator func(c Dic) Service) Builder {
+	key := typeKey[Service]()
+	if _, ok := b.b.services[key]; ok {
+		var t Service
+		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
+	}
+	service := newSingleton(func(c Dic) any { return creator(c) })
+	b.b.services[key] = service
+	b.b.dependencies[reflect.TypeFor[Service]()] = nil
+	return b
+}
+
+func RegisterScoped[Service any](b Builder, loading loading, scope ScopeID, creator func(c Dic) Service) Builder {
+	if scope == ScopeSingleton {
+		return RegisterSingleton(b, creator)
+	}
+	if scope == ScopeTransient {
+		return RegisterTransient(b, creator)
+	}
+	key := typeKey[Service]()
+	if _, ok := b.b.services[key]; ok {
+		var t Service
+		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
+	}
+	service := newScoped(scope, func(c Dic) any { return creator(c) })
+	b.b.services[key] = service
+	b.b.eagerScoped = append(b.b.eagerScoped, key)
+	b.b.dependencies[reflect.TypeFor[Service]()] = nil
+	return b
+}
+
+func RegisterTransient[Service any](b Builder, creator func(c Dic) Service) Builder {
+	key := typeKey[Service]()
+	if _, ok := b.b.services[key]; ok {
+		var t Service
+		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
+	}
+	service := newTransient(func(c Dic) any { return creator(c) })
+	b.b.services[key] = service
+	b.b.dependencies[reflect.TypeFor[Service]()] = nil
+	return b
+}
+
+// wraps with the smallest id are applied first
+// wraps with the same order are applied randomly
+func WrapService[Service any](b Builder, order Order, wrap func(c Dic, s Service) Service) Builder {
+	key := typeKey[Service]()
+	wraps := newCtorWrap(order, wrap)
+
+	if _, ok := b.b.wraps[key]; !ok {
+		b.b.wraps[key] = make([]ctorWrap, 0, 1)
+	}
+
+	b.b.wraps[key] = append(b.b.wraps[key], wraps)
+	return b
+}
+
+func RegisterDependencies[Service any](b Builder, dependencies ...reflect.Type) Builder {
+	tType := reflect.TypeFor[Service]()
+	b.b.dependencies[tType] = append(b.b.dependencies[tType], dependencies...)
+	return b
+}
+
+func RegisterDependency[Service any, Dependency any](b Builder) Builder {
+	tType := reflect.TypeFor[Service]()
+	b.b.dependencies[tType] = append(b.b.dependencies[tType], reflect.TypeFor[Dependency]())
+	return b
+}
+
+// panics when attempting to regsiter ScopeSingleton or ScopeTransient
+func (b Builder) RegisterScope(scope ScopeID) {
+	if scope == ScopeSingleton {
+		panic(ErrScopeDoesNotExist)
+	}
+	if scope == ScopeTransient {
+		panic(ErrScopeDoesNotExist)
+	}
+	b.b.scopes[scope] = struct{}{}
+}
+
+func (b Builder) LazySingletonLoading() {
+	b.b.eagerSingletonLoading = false
 }
 
 func validateDependencies(b Builder) error {
@@ -187,10 +288,26 @@ func (b Builder) Build() Dic {
 		}
 		services[key] = service
 	}
+	eagerScopedServices := make(map[ScopeID][]serviceID, len(b.b.scopes))
+	for scope := range b.b.scopes {
+		eagerScopedServices[scope] = make([]serviceID, 0)
+	}
+	for serviceId, service := range services {
+		if service.lifetime != scoped {
+			continue
+		}
+		additional := service.additional.(scopedAdditional)
+		if additional.Loading != EagerLoading {
+			continue
+		}
+		scopeId := additional.Scope
+		eagerScopedServices[scopeId] = append(eagerScopedServices[scopeId], serviceId)
+	}
 	c := Dic{
 		c: &dic{
 			serviceRegisterMutex: &sync.Mutex{},
 			services:             services,
+			eagerScopedServices:  eagerScopedServices,
 			scopedCreateLockset:  lockset.New(),
 			scopes:               map[ScopeID]map[serviceID]any{},
 		},
@@ -200,12 +317,12 @@ func (b Builder) Build() Dic {
 	}
 	if b.b.eagerSingletonLoading {
 		for key, service := range b.b.services {
-			if service.lifetime != singleton {
+			if service.lifetime != singleton && (service.lifetime != scoped) {
 				continue
 			}
 			if service.additional == nil {
 				c.c.scopedCreateLockset.Lock(key)
-				service.additional = SingletonAdditional{
+				service.additional = singletonAdditional{
 					Service: service.creator(c),
 				}
 				b.b.services[key] = service
@@ -214,91 +331,4 @@ func (b Builder) Build() Dic {
 		}
 	}
 	return c
-}
-
-func (b Builder) Wrap(wrap func(Builder) Builder) Builder {
-	return wrap(b)
-}
-
-func RegisterSingleton[Service any](b Builder, creator func(c Dic) Service) Builder {
-	key := typeKey[Service]()
-	if _, ok := b.b.services[key]; ok {
-		var t Service
-		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
-	}
-	service := newSingleton(func(c Dic) any { return creator(c) })
-	b.b.services[key] = service
-	b.b.dependencies[reflect.TypeFor[Service]()] = nil
-	return b
-}
-
-func RegisterScoped[Service any](b Builder, scope ScopeID, creator func(c Dic) Service) Builder {
-	if scope == ScopeSingleton {
-		return RegisterSingleton(b, creator)
-	}
-	if scope == ScopeTransient {
-		return RegisterTransient(b, creator)
-	}
-	key := typeKey[Service]()
-	if _, ok := b.b.services[key]; ok {
-		var t Service
-		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
-	}
-	service := newScoped(scope, func(c Dic) any { return creator(c) })
-	b.b.services[key] = service
-	b.b.dependencies[reflect.TypeFor[Service]()] = nil
-	return b
-}
-
-func RegisterTransient[Service any](b Builder, creator func(c Dic) Service) Builder {
-	key := typeKey[Service]()
-	if _, ok := b.b.services[key]; ok {
-		var t Service
-		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
-	}
-	service := newTransient(func(c Dic) any { return creator(c) })
-	b.b.services[key] = service
-	b.b.dependencies[reflect.TypeFor[Service]()] = nil
-	return b
-}
-
-// wraps with the smallest id are applied first
-// wraps with the same order are applied randomly
-func WrapService[Service any](b Builder, order Order, wrap func(c Dic, s Service) Service) Builder {
-	key := typeKey[Service]()
-	wraps := newCtorWrap(order, wrap)
-
-	if _, ok := b.b.wraps[key]; !ok {
-		b.b.wraps[key] = make([]ctorWrap, 0, 1)
-	}
-
-	b.b.wraps[key] = append(b.b.wraps[key], wraps)
-	return b
-}
-
-func RegisterDependencies[Service any](b Builder, dependencies ...reflect.Type) Builder {
-	tType := reflect.TypeFor[Service]()
-	b.b.dependencies[tType] = append(b.b.dependencies[tType], dependencies...)
-	return b
-}
-
-func RegisterDependency[Service any, Dependency any](b Builder) Builder {
-	tType := reflect.TypeFor[Service]()
-	b.b.dependencies[tType] = append(b.b.dependencies[tType], reflect.TypeFor[Dependency]())
-	return b
-}
-
-// panics when attempting to regsiter ScopeSingleton or ScopeTransient
-func (b Builder) RegisterScope(scope ScopeID) {
-	if scope == ScopeSingleton {
-		panic(ErrScopeDoesNotExist)
-	}
-	if scope == ScopeTransient {
-		panic(ErrScopeDoesNotExist)
-	}
-	b.b.scopes[scope] = struct{}{}
-}
-
-func (b Builder) LazySingletonLoading() {
-	b.b.eagerSingletonLoading = false
 }

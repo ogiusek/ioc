@@ -7,7 +7,7 @@ import (
 )
 
 func typeKey[T any]() serviceID {
-	return (*T)(nil)
+	return reflect.TypeFor[T]()
 }
 
 // Returns service instance of type T.
@@ -30,16 +30,16 @@ func TryGet[T any](c Dic) (T, error) {
 	case singleton:
 		if service.additional == nil {
 			c.c.scopedCreateLockset.Lock(key)
-			service.additional = SingletonAdditional{
+			service.additional = singletonAdditional{
 				Service: service.creator(c),
 			}
 			c.c.services[key] = service
 			c.c.scopedCreateLockset.Unlock(key)
 		}
-		res = service.additional.(SingletonAdditional).Service
+		res = service.additional.(singletonAdditional).Service
 		break
 	case scoped:
-		additional := service.additional.(ScopedAdditional)
+		additional := service.additional.(scopedAdditional)
 		scope, ok := c.c.scopes[additional.Scope]
 		if !ok {
 			var t T

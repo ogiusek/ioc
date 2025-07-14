@@ -1,14 +1,37 @@
 package ioc
 
-type ScopedAdditional struct {
-	Scope ScopeID
+//
+
+type loading int
+
+const (
+	EagerLoading loading = iota
+	LazyLoading
+)
+
+//
+
+type lifetime int
+
+const (
+	singleton lifetime = iota
+	scoped
+	transient
+)
+
+//
+
+type scopedAdditional struct {
+	Scope   ScopeID
+	Loading loading
 }
 
-type SingletonAdditional struct {
+type singletonAdditional struct {
 	Service any
+	Loading loading
 }
 
-type Service struct {
+type service struct {
 	creator  func(Dic) any
 	lifetime lifetime
 	// initialized service for singleton
@@ -16,27 +39,29 @@ type Service struct {
 	additional any
 }
 
-func newSingleton(creator func(Dic) any) Service {
-	return Service{
+func newSingleton(creator func(Dic) any) service {
+	return service{
 		creator:  creator,
 		lifetime: singleton,
 	}
 }
 
-func newScoped(scope ScopeID, creator func(Dic) any) Service {
-	return Service{
+func newScoped(scope ScopeID, creator func(Dic) any) service {
+	return service{
 		creator:    creator,
 		lifetime:   scoped,
-		additional: ScopedAdditional{Scope: scope},
+		additional: scopedAdditional{Scope: scope},
 	}
 }
 
-func newTransient(creator func(Dic) any) Service {
-	return Service{
+func newTransient(creator func(Dic) any) service {
+	return service{
 		creator:  creator,
 		lifetime: transient,
 	}
 }
+
+//
 
 type Order int
 

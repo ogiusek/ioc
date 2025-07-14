@@ -22,11 +22,26 @@ func BenchmarkGetTransient(b *testing.B) {
 	}
 }
 
+func BenchmarkGetWrappedTransient(b *testing.B) {
+	initial := 1
+	builder := ioc.NewBuilder()
+	ioc.RegisterTransient(builder, func(c ioc.Dic) int { return initial })
+	for i := 0; i < 10; i++ {
+		ioc.WrapService(builder, 0, func(c ioc.Dic, s int) int { return s + 1 })
+	}
+	c := builder.Build()
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		ioc.Get[int](c)
+	}
+}
+
 func BenchmarkGetScoped(b *testing.B) {
 	scope := ioc.ScopeID("")
 	initial := 1
 	builder := ioc.NewBuilder()
-	ioc.RegisterScoped(builder, scope, func(c ioc.Dic) int { return initial })
+	ioc.RegisterScoped(builder, ioc.EagerLoading, scope, func(c ioc.Dic) int { return initial })
 	builder.RegisterScope(scope)
 	c := builder.Build()
 	s := c.Scope(scope)
@@ -41,7 +56,7 @@ func BenchmarkScopeCreation(b *testing.B) {
 	scope := ioc.ScopeID("")
 	initial := 1
 	builder := ioc.NewBuilder()
-	ioc.RegisterScoped(builder, scope, func(d ioc.Dic) int { return initial })
+	ioc.RegisterScoped(builder, ioc.EagerLoading, scope, func(d ioc.Dic) int { return initial })
 	builder.RegisterScope(scope)
 	c := builder.Build()
 
@@ -119,6 +134,7 @@ func BenchmarkMapWithMutexForComparison(b *testing.B) {
 		mutex.Unlock()
 	}
 }
+
 func BenchmarkMapPtrWithMutexForComparison(b *testing.B) {
 	key := "item"
 	testedMap := &map[string]int{
