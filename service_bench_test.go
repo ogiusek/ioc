@@ -308,6 +308,93 @@ func BenchmarkGetTInitialized(b *testing.B) {
 	})
 }
 
+func BenchmarkGetManyExactly2Initialized(b *testing.B) {
+	b.ReportAllocs()
+	builder := ioc.NewBuilder()
+	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int)) {
+		var i int = 0
+		ioc.Init(c, &i)
+		onInit(c, i)
+	})
+	ioc.MarkEagerSingleton[int](builder)
+	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic)) {
+		*service += 7
+		next(c)
+	})
+
+	ioc.Build(builder, func(c ioc.Dic) {
+		b.ResetTimer()
+
+		sum := 0
+		for i := 0; i < b.N; i++ {
+			ioc.GetMany(c, func(service, _ int) {
+				sum += service
+			})
+		}
+		if sum != b.N*7 {
+			b.Errorf("sum != b.N * 7; sum == %d; b.N * 7 == %d;\n", sum, b.N*7)
+		}
+	})
+}
+
+func BenchmarkGetManyExactly3Initialized(b *testing.B) {
+	b.ReportAllocs()
+	builder := ioc.NewBuilder()
+	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int)) {
+		var i int = 0
+		ioc.Init(c, &i)
+		onInit(c, i)
+	})
+	ioc.MarkEagerSingleton[int](builder)
+	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic)) {
+		*service += 7
+		next(c)
+	})
+
+	ioc.Build(builder, func(c ioc.Dic) {
+		b.ResetTimer()
+
+		sum := 0
+		for i := 0; i < b.N; i++ {
+			ioc.GetMany(c, func(service, _, _ int) {
+				sum += service
+			})
+		}
+		if sum != b.N*7 {
+			b.Errorf("sum != b.N * 7; sum == %d; b.N * 7 == %d;\n", sum, b.N*7)
+		}
+	})
+}
+
+func BenchmarkGetManyExactly4Initialized(b *testing.B) {
+	b.ReportAllocs()
+	builder := ioc.NewBuilder()
+	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int)) {
+		var i int = 0
+		ioc.Init(c, &i)
+		onInit(c, i)
+	})
+	ioc.MarkEagerSingleton[int](builder)
+	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic)) {
+		*service += 7
+		next(c)
+	})
+
+	ioc.Build(builder, func(c ioc.Dic) {
+		b.ResetTimer()
+
+		sum := 0
+		for i := 0; i < b.N; i++ {
+			ioc.GetMany(c, func(service, _, _, _ int) {
+				sum += service
+			})
+		}
+		if sum != b.N*7 {
+			b.Errorf("sum != b.N * 7; sum == %d; b.N * 7 == %d;\n", sum, b.N*7)
+		}
+	})
+}
+
 func BenchmarkGetNewScope(b *testing.B) {
 	b.ReportAllocs()
 	builder := ioc.NewBuilder()

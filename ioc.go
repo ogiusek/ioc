@@ -9,6 +9,7 @@ import (
 
 var (
 	ErrCircularDependency error = errors.New("circular dependency. cannot request pending service")
+	ErrNotAFunction       error = errors.New("argument is not a function")
 )
 
 func Build(b *builder, getter func(c Dic)) []error {
@@ -73,9 +74,12 @@ func Build(b *builder, getter func(c Dic)) []error {
 	return nil
 }
 
+var dicType = reflect.TypeFor[Dic]()
+
 type Dic *dic
 
 type dic struct {
+	// add shared
 	onInit        map[reflect.Type]func(c Dic, service any)
 	defaultOnInit func(c Dic, t reflect.Type, service any)
 
@@ -211,5 +215,56 @@ func GetT(c Dic, t reflect.Type, getter func(c Dic, service any)) error {
 	}
 	init(c, onInit)
 	delete(c.pendingServices, t)
+	return nil
+}
+
+// gets existing services or tries to initialize service.
+// note: onInit isn't called
+// example getter: `func(c Dic, serviceA Service, serviceB ...)`
+// argument can be any service or `Dic`
+func GetMany(c Dic, getter any) error {
+	getterValue := reflect.ValueOf(getter)
+	getterType := getterValue.Type()
+
+	if getterType.Kind() != reflect.Func {
+		return errors.Join(
+			ErrNotAFunction,
+			fmt.Errorf("argument type is \"%s\"", getterType.String()),
+		)
+	}
+
+	numArgs := getterType.NumIn()
+	in := make([]reflect.Value, numArgs)
+	dicIndicies := []int{}
+
+	call := func(c Dic) error {
+		cValue := reflect.ValueOf(c)
+		for _, i := range dicIndicies {
+			in[i] = cValue
+		}
+		getterValue.Call(in)
+		return nil
+	}
+
+	for i := 0; i < numArgs; i++ {
+		argType := getterType.In(i)
+
+		if argType == dicType {
+			dicIndicies = append(dicIndicies, i)
+			continue
+		}
+
+		prevCall := call
+		call = func(c Dic) error {
+			return GetT(c, argType, func(c Dic, service any) {
+				in[i] = reflect.ValueOf(service)
+				prevCall(c)
+			})
+		}
+	}
+
+	if err := call(c); err != nil {
+		return c.errHandler(c, err)
+	}
 	return nil
 }

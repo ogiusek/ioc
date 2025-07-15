@@ -246,6 +246,16 @@ Else creates service
 func GetT(c Dic, t reflect.Type, getter func(c Dic, service any)) error
 ```
 
+calls getter where arguments are injected from container.
+if `Dic` is requested then its injected not as service but as latest list of services.
+```go
+// gets existing services or tries to initialize service.
+// note: onInit isn't called
+// example getter: `func(c Dic, serviceA Service, serviceB ...)`
+// argument can be any service or `Dic`
+func GetMany(c Dic, getter any) error
+```
+
 ## Contributing
 
 Contact us we are open for suggestions
