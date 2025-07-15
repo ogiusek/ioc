@@ -12,14 +12,14 @@ var (
 	ErrNotAFunction       error = errors.New("argument is not a function")
 )
 
-func Build(b *builder, getter func(c Dic)) []error {
+func Build(b *builder, getter func(c Dic) error) []error {
 	if len(b.errors) != 0 {
 		return b.errors
 	}
 	c := Dic(&dic{
-		onInit:          make(map[reflect.Type]func(c Dic, service any)),
+		onInit:          make(map[reflect.Type]containerOnInitFunc),
 		defaultInit:     b.defaultInit,
-		init:            make(map[reflect.Type]func(c Dic, getter func(c Dic, service any))),
+		init:            make(map[reflect.Type]initFunc),
 		defaultOnInit:   b.defaultOnInit,
 		errHandler:      b.errorHandler,
 		services:        make(map[reflect.Type]any),
@@ -29,21 +29,25 @@ func Build(b *builder, getter func(c Dic)) []error {
 	for serviceType, onInits := range b.onInit {
 		sort.Slice(onInits, func(i, j int) bool { return onInits[i].order < onInits[j].order })
 
-		c.onInit[serviceType] = func(c Dic, service any) {
-			var onInit func(c Dic)
+		c.onInit[serviceType] = func(c Dic, service any) error {
+			var onInit func(c Dic) error
 			for i, oi := range onInits {
 				if i == 0 {
-					onInit = func(c Dic) { oi.onInit(c, service, func(c Dic) {}) }
+					onInit = func(c Dic) error {
+						oi.onInit(c, service, func(c Dic) error { return nil })
+						return nil
+					}
 					continue
 				}
 				next := onInit
-				onInit = func(c Dic) {
-					oi.onInit(c, service, next)
+				onInit = func(c Dic) error {
+					return oi.onInit(c, service, next)
 				}
 			}
 			if onInit != nil {
-				onInit(c)
+				return onInit(c)
 			}
+			return nil
 		}
 	}
 
@@ -63,28 +67,33 @@ func Build(b *builder, getter func(c Dic)) []error {
 	}
 
 	// this service is just to reduce amount of function calls
-	load := func(c Dic, service any) {
-		getter(c)
+	var load getterFunc = func(c Dic, service any) error {
+		return getter(c)
 	}
 	for _, t := range eagerSingletons {
 		loadEager := load
-		load = func(c Dic, service any) { GetT(c, t, loadEager) }
+		load = func(c Dic, service any) error { return GetAny(c, t, loadEager) }
 	}
-	load(c, nil)
-	return nil
+	errs := []error{}
+	if err := load(c, nil); err != nil {
+		errs = append(errs, err)
+	}
+	return errs
 }
 
 var dicType = reflect.TypeFor[Dic]()
+
+type containerOnInitFunc func(c Dic, service any) error
 
 type Dic *dic
 
 type dic struct {
 	// add shared
-	onInit        map[reflect.Type]func(c Dic, service any)
-	defaultOnInit func(c Dic, t reflect.Type, service any)
+	onInit        map[reflect.Type]containerOnInitFunc
+	defaultOnInit defaultOnInitFunc
 
-	init        map[reflect.Type]func(c Dic, getter func(c Dic, service any))
-	defaultInit func(c Dic, t reflect.Type, getter func(c Dic, service any)) error
+	init        map[reflect.Type]initFunc
+	defaultInit defaultInitFunc
 
 	errHandler func(c Dic, err error) error
 
@@ -134,31 +143,33 @@ func withServiceT(c Dic, t reflect.Type, service any, getter func(c Dic)) {
 }
 
 // calls on init listeners
-func Init[Service any](c Dic, s Service) {
+func Init[Service any](c Dic, s Service) error {
 	t := reflect.TypeFor[Service]()
-	initT(c, t, s)
+	return initT(c, t, s)
 }
 
 // calls on init listeners
-func InitAny(c Dic, s any) {
+func InitAny(c Dic, s any) error {
 	t := reflect.TypeOf(s)
-	initT(c, t, s)
+	return initT(c, t, s)
 }
 
-func initT(c Dic, t reflect.Type, s any) {
+func initT(c Dic, t reflect.Type, s any) error {
+	var err error
 	withServiceT(c, t, s, func(c Dic) {
 		if onInit, ok := c.onInit[t]; ok {
-			onInit(c, s)
+			err = onInit(c, s)
 			return
 		}
-		c.defaultOnInit(c, t, s)
+		err = c.defaultOnInit(c, t, s)
 	})
+	return err
 }
 
 // gets existing service or tries to initialize service.
 // note: onInit isn't called
 // this method can return ErrCircularDependency
-func Get[Service any](c Dic, getter func(c Dic, service Service)) error {
+func Get[Service any](c Dic, getter func(c Dic, service Service) error) error {
 	t := reflect.TypeFor[Service]()
 	if service, ok := c.services[t]; ok {
 		getter(c, service.(Service))
@@ -173,8 +184,10 @@ func Get[Service any](c Dic, getter func(c Dic, service Service)) error {
 	}
 	c.pendingServices[t] = struct{}{}
 	init, ok := c.init[t]
-	onInit := func(c Dic, service any) {
-		withServiceT(c, t, service, func(c Dic) { getter(c, service.(Service)) })
+	onInit := func(c Dic, service any) error {
+		var err error
+		withServiceT(c, t, service, func(c Dic) { err = getter(c, service.(Service)) })
+		return err
 	}
 	if !ok {
 		err := c.defaultInit(c, t, onInit)
@@ -183,14 +196,14 @@ func Get[Service any](c Dic, getter func(c Dic, service Service)) error {
 		}
 		return nil
 	}
-	init(c, onInit)
+	err := init(c, onInit)
 	delete(c.pendingServices, t)
-	return nil
+	return err
 }
 
 // gets existing service or tries to initialize service.
 // note: onInit isn't called
-func GetT(c Dic, t reflect.Type, getter func(c Dic, service any)) error {
+func GetAny(c Dic, t reflect.Type, getter getterFunc) error {
 	if service, ok := c.services[t]; ok {
 		getter(c, service)
 		return nil
@@ -203,8 +216,10 @@ func GetT(c Dic, t reflect.Type, getter func(c Dic, service any)) error {
 		return c.errHandler(c, err)
 	}
 	init, ok := c.init[t]
-	onInit := func(c Dic, service any) {
-		withServiceT(c, t, service, func(c Dic) { getter(c, service) })
+	var onInit getterFunc = func(c Dic, service any) error {
+		var err error
+		withServiceT(c, t, service, func(c Dic) { err = getter(c, service) })
+		return err
 	}
 	if !ok {
 		err := c.defaultInit(c, t, onInit)
@@ -242,7 +257,14 @@ func GetMany(c Dic, getter any) error {
 		for _, i := range dicIndicies {
 			in[i] = cValue
 		}
-		getterValue.Call(in)
+		results := getterValue.Call(in)
+		if len(results) != 1 {
+			return nil
+		}
+		res := results[0]
+		if err, ok := res.Interface().(error); ok {
+			return err
+		}
 		return nil
 	}
 
@@ -256,9 +278,9 @@ func GetMany(c Dic, getter any) error {
 
 		prevCall := call
 		call = func(c Dic) error {
-			return GetT(c, argType, func(c Dic, service any) {
+			return GetAny(c, argType, func(c Dic, service any) error {
 				in[i] = reflect.ValueOf(service)
-				prevCall(c)
+				return prevCall(c)
 			})
 		}
 	}

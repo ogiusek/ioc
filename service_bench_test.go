@@ -98,117 +98,125 @@ import (
 func BenchmarkServiceInit(b *testing.B) {
 	b.ReportAllocs()
 	builder := ioc.NewBuilder()
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int)) {
+	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int) error) error {
 		var i int = 7
-		onInit(c, i)
+		return onInit(c, i)
 	})
-	ioc.Build(builder, func(c ioc.Dic) {
+	ioc.Build(builder, func(c ioc.Dic) error {
 		b.ResetTimer()
 
 		sum := 0
 		for i := 0; i < b.N; i++ {
-			ioc.Get(c, func(c ioc.Dic, service int) {
+			ioc.Get(c, func(c ioc.Dic, service int) error {
 				sum += service
+				return nil
 			})
 		}
 		if sum != b.N*7 {
 			b.Errorf("sum != b.N * 7; sum == %d; b.N * 7 == %d;\n", sum, b.N*7)
 		}
+		return nil
 	})
 }
 
 func BenchmarkWithTransientDependencyServiceInit(b *testing.B) {
 	b.ReportAllocs()
 	builder := ioc.NewBuilder()
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int32)) {
-		onInit(c, 7)
+	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int32) error) error {
+		return onInit(c, 7)
 	})
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int)) {
-		ioc.Get(c, func(c ioc.Dic, service int32) {
-			onInit(c, int(service))
+	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int) error) error {
+		return ioc.Get(c, func(c ioc.Dic, service int32) error {
+			return onInit(c, int(service))
 		})
 	})
-	ioc.Build(builder, func(c ioc.Dic) {
+	ioc.Build(builder, func(c ioc.Dic) error {
 		b.ResetTimer()
 
 		sum := 0
 		for i := 0; i < b.N; i++ {
-			ioc.Get(c, func(c ioc.Dic, service int) {
+			ioc.Get(c, func(c ioc.Dic, service int) error {
 				sum += service
+				return nil
 			})
 		}
 		if sum != b.N*7 {
 			b.Errorf("sum != b.N * 7; sum == %d; b.N * 7 == %d;\n", sum, b.N*7)
 		}
+		return nil
 	})
 }
 
 func BenchmarkWithSingletonDependencyServiceInit(b *testing.B) {
 	b.ReportAllocs()
 	builder := ioc.NewBuilder()
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int32)) {
-		onInit(c, 7)
+	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int32) error) error {
+		return onInit(c, 7)
 	})
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int)) {
-		ioc.Get(c, func(c ioc.Dic, service int32) {
-			onInit(c, int(service))
+	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int) error) error {
+		return ioc.Get(c, func(c ioc.Dic, service int32) error {
+			return onInit(c, int(service))
 		})
 	})
-	ioc.Build(builder, func(c ioc.Dic) {
-		ioc.Get(c, func(c ioc.Dic, _ int32) {
+	ioc.Build(builder, func(c ioc.Dic) error {
+		ioc.Get(c, func(c ioc.Dic, _ int32) error {
 			b.ResetTimer()
 
 			sum := 0
 			for i := 0; i < b.N; i++ {
-				ioc.Get(c, func(c ioc.Dic, service int) {
+				ioc.Get(c, func(c ioc.Dic, service int) error {
 					sum += service
+					return nil
 				})
 			}
 			if sum != b.N*7 {
 				b.Errorf("sum != b.N * 7; sum == %d; b.N * 7 == %d;\n", sum, b.N*7)
 			}
+			return nil
 		})
+
+		return nil
 	})
+}
+
+func addSingleton[Service any](b ioc.Builder, service Service) {
+	ioc.AddInit(b, func(c ioc.Dic, getter func(c ioc.Dic, service Service) error) error {
+		return getter(c, service)
+	})
+	ioc.MarkEagerSingleton[Service](b)
 }
 
 func BenchmarkInitWithSingletons(b *testing.B) {
 	b.ReportAllocs()
 	builder := ioc.NewBuilder()
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service float32)) { onInit(c, 0) })
-	ioc.MarkEagerSingleton[float32](builder)
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service float64)) { onInit(c, 0) })
-	ioc.MarkEagerSingleton[float64](builder)
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int32)) { onInit(c, 0) })
-	ioc.MarkEagerSingleton[int32](builder)
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int64)) { onInit(c, 0) })
-	ioc.MarkEagerSingleton[int64](builder)
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service uint)) { onInit(c, 0) })
-	ioc.MarkEagerSingleton[uint](builder)
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service uint8)) { onInit(c, 0) })
-	ioc.MarkEagerSingleton[uint8](builder)
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service uint16)) { onInit(c, 0) })
-	ioc.MarkEagerSingleton[uint16](builder)
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service uint32)) { onInit(c, 0) })
-	ioc.MarkEagerSingleton[uint32](builder)
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service uint64)) { onInit(c, 0) })
-	ioc.MarkEagerSingleton[uint64](builder)
+	addSingleton[float32](builder, 0)
+	addSingleton[float64](builder, 0)
+	addSingleton[int32](builder, 0)
+	addSingleton[int64](builder, 0)
+	addSingleton[uint](builder, 0)
+	addSingleton[uint8](builder, 0)
+	addSingleton[uint16](builder, 0)
+	addSingleton[uint32](builder, 0)
+	addSingleton[uint64](builder, 0)
 
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int)) {
+	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int) error) error {
 		var i int = 7
-		onInit(c, i)
+		return onInit(c, i)
 	})
-	ioc.Build(builder, func(c ioc.Dic) {
+	ioc.Build(builder, func(c ioc.Dic) error {
 		b.ResetTimer()
 
 		sum := 0
 		for i := 0; i < b.N; i++ {
-			ioc.Get(c, func(c ioc.Dic, service int) {
+			ioc.Get(c, func(c ioc.Dic, service int) error {
 				sum += service
+				return nil
 			})
 		}
 		if sum != b.N*7 {
 			b.Errorf("sum != b.N * 7; sum == %d; b.N * 7 == %d;\n", sum, b.N*7)
 		}
+		return nil
 	})
 }
 
@@ -216,12 +224,12 @@ func BenchmarkInitListeners(b *testing.B) {
 	b.ReportAllocs()
 	builder := ioc.NewBuilder()
 	for i := 0; i < b.N; i++ {
-		ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic)) {
+		ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic) error) error {
 			*service += 7
-			next(c)
+			return next(c)
 		})
 	}
-	ioc.Build(builder, func(c ioc.Dic) {
+	ioc.Build(builder, func(c ioc.Dic) error {
 		b.ResetTimer()
 
 		var sum int = 0
@@ -230,99 +238,105 @@ func BenchmarkInitListeners(b *testing.B) {
 		if sum != b.N*7 {
 			b.Errorf("sum != b.N * 7; sum == %d; b.N * 7 == %d;\n", sum, b.N*7)
 		}
+		return nil
 	})
 }
 
 func BenchmarkManualInit(b *testing.B) {
 	b.ReportAllocs()
 	builder := ioc.NewBuilder()
-	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic)) {
+	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic) error) error {
 		*service += 1
-		next(c)
+		return next(c)
 	})
-	ioc.Build(builder, func(c ioc.Dic) {
+	ioc.Build(builder, func(c ioc.Dic) error {
 		b.ResetTimer()
 
 		for i := 0; i < b.N; i++ {
 			ioc.Init(c, i)
 		}
+		return nil
 	})
 }
 
 func BenchmarkGetInitialized(b *testing.B) {
 	b.ReportAllocs()
 	builder := ioc.NewBuilder()
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int)) {
+	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int) error) error {
 		var i int = 0
 		ioc.Init(c, &i)
-		onInit(c, i)
+		return onInit(c, i)
 	})
 	ioc.MarkEagerSingleton[int](builder)
-	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic)) {
+	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic) error) error {
 		*service += 7
-		next(c)
+		return next(c)
 	})
 
-	ioc.Build(builder, func(c ioc.Dic) {
+	ioc.Build(builder, func(c ioc.Dic) error {
 		b.ResetTimer()
 
 		sum := 0
 		for i := 0; i < b.N; i++ {
-			ioc.Get(c, func(c ioc.Dic, service int) {
+			ioc.Get(c, func(c ioc.Dic, service int) error {
 				sum += service
+				return nil
 			})
 		}
 		if sum != b.N*7 {
 			b.Errorf("sum != b.N * 7; sum == %d; b.N * 7 == %d;\n", sum, b.N*7)
 		}
+		return nil
 	})
 }
 
 func BenchmarkGetTInitialized(b *testing.B) {
 	b.ReportAllocs()
 	builder := ioc.NewBuilder()
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int)) {
+	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int) error) error {
 		var i int = 0
 		ioc.Init(c, &i)
-		onInit(c, i)
+		return onInit(c, i)
 	})
 	ioc.MarkEagerSingleton[int](builder)
-	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic)) {
+	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic) error) error {
 		*service += 7
-		next(c)
+		return next(c)
 	})
 
-	ioc.Build(builder, func(c ioc.Dic) {
+	ioc.Build(builder, func(c ioc.Dic) error {
 		t := reflect.TypeFor[int]()
 		b.ResetTimer()
 
 		sum := 0
 		for i := 0; i < b.N; i++ {
-			ioc.GetT(c, t, func(c ioc.Dic, service any) {
+			ioc.GetAny(c, t, func(c ioc.Dic, service any) error {
 				sum += service.(int)
+				return nil
 			})
 		}
 		if sum != b.N*7 {
 			b.Errorf("sum != b.N * 7; sum == %d; b.N * 7 == %d;\n", sum, b.N*7)
 		}
+		return nil
 	})
 }
 
 func BenchmarkGetManyExactly2Initialized(b *testing.B) {
 	b.ReportAllocs()
 	builder := ioc.NewBuilder()
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int)) {
+	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int) error) error {
 		var i int = 0
 		ioc.Init(c, &i)
-		onInit(c, i)
+		return onInit(c, i)
 	})
 	ioc.MarkEagerSingleton[int](builder)
-	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic)) {
+	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic) error) error {
 		*service += 7
-		next(c)
+		return next(c)
 	})
 
-	ioc.Build(builder, func(c ioc.Dic) {
+	ioc.Build(builder, func(c ioc.Dic) error {
 		b.ResetTimer()
 
 		sum := 0
@@ -334,24 +348,27 @@ func BenchmarkGetManyExactly2Initialized(b *testing.B) {
 		if sum != b.N*7 {
 			b.Errorf("sum != b.N * 7; sum == %d; b.N * 7 == %d;\n", sum, b.N*7)
 		}
+		return nil
 	})
 }
 
 func BenchmarkGetManyExactly3Initialized(b *testing.B) {
 	b.ReportAllocs()
 	builder := ioc.NewBuilder()
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int)) {
+	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int) error) error {
 		var i int = 0
-		ioc.Init(c, &i)
-		onInit(c, i)
+		if err := ioc.Init(c, &i); err != nil {
+			return err
+		}
+		return onInit(c, i)
 	})
 	ioc.MarkEagerSingleton[int](builder)
-	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic)) {
+	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic) error) error {
 		*service += 7
-		next(c)
+		return next(c)
 	})
 
-	ioc.Build(builder, func(c ioc.Dic) {
+	ioc.Build(builder, func(c ioc.Dic) error {
 		b.ResetTimer()
 
 		sum := 0
@@ -363,24 +380,27 @@ func BenchmarkGetManyExactly3Initialized(b *testing.B) {
 		if sum != b.N*7 {
 			b.Errorf("sum != b.N * 7; sum == %d; b.N * 7 == %d;\n", sum, b.N*7)
 		}
+		return nil
 	})
 }
 
 func BenchmarkGetManyExactly4Initialized(b *testing.B) {
 	b.ReportAllocs()
 	builder := ioc.NewBuilder()
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int)) {
+	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int) error) error {
 		var i int = 0
-		ioc.Init(c, &i)
-		onInit(c, i)
+		if err := ioc.Init(c, &i); err != nil {
+			return err
+		}
+		return onInit(c, i)
 	})
 	ioc.MarkEagerSingleton[int](builder)
-	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic)) {
+	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic) error) error {
 		*service += 7
-		next(c)
+		return next(c)
 	})
 
-	ioc.Build(builder, func(c ioc.Dic) {
+	ioc.Build(builder, func(c ioc.Dic) error {
 		b.ResetTimer()
 
 		sum := 0
@@ -392,34 +412,40 @@ func BenchmarkGetManyExactly4Initialized(b *testing.B) {
 		if sum != b.N*7 {
 			b.Errorf("sum != b.N * 7; sum == %d; b.N * 7 == %d;\n", sum, b.N*7)
 		}
+
+		return nil
 	})
 }
 
 func BenchmarkGetNewScope(b *testing.B) {
 	b.ReportAllocs()
 	builder := ioc.NewBuilder()
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int)) {
+	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int) error) error {
 		var i int = 0
-		ioc.Init(c, &i)
-		onInit(c, i)
+		if err := ioc.Init(c, &i); err != nil {
+			return err
+		}
+		return onInit(c, i)
 	})
 	ioc.MarkParallelScope[int](builder)
-	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic)) {
+	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic) error) error {
 		*service += 7
-		next(c)
+		return next(c)
 	})
 
-	ioc.Build(builder, func(c ioc.Dic) {
+	ioc.Build(builder, func(c ioc.Dic) error {
 		sum := 0
 
 		b.ResetTimer()
 		for i := 0; i < b.N; i++ {
-			ioc.Get(c, func(c ioc.Dic, service int) {
+			ioc.Get(c, func(c ioc.Dic, service int) error {
 				sum += service
+				return nil
 			})
 		}
 		if sum != b.N*7 {
 			b.Errorf("sum != b.N * 7; sum == %d; b.N * 7 == %d;\n", sum, b.N*7)
 		}
+		return nil
 	})
 }

@@ -20,9 +20,24 @@ const (
 
 //
 
+type getterTFunc[Service any] func(c Dic, service Service) error
+type getterFunc func(c Dic, service any) error
+
+// type initTFunc[Service any] func(c Dic, getter getterTFunc[Service])
+// type initFunc func(c Dic, getter getterFunc)
+type initTFunc[Service any] func(c Dic, getter func(c Dic, service Service) error) error
+type initFunc func(c Dic, getter func(c Dic, service any) error) error
+
+type onInitTFunc[Service any] func(c Dic, service Service, next func(c Dic) error) error
+type onInitFunc func(c Dic, service any, next func(c Dic) error) error
+
+type defaultInitFunc func(c Dic, t reflect.Type, getter getterFunc) error
+type defaultOnInitFunc func(c Dic, t reflect.Type, service any) error
+type errorHandlerFunc func(c Dic, err error) error
+
 type onInit struct {
 	order  Order
-	onInit func(c Dic, service any, next func(c Dic))
+	onInit onInitFunc
 }
 
 type initialize func(c Dic, onInit func(c Dic, service any))
@@ -33,14 +48,14 @@ type builder struct {
 	errors []error
 
 	onInit map[reflect.Type][]onInit
-	init   map[reflect.Type]initialize
+	init   map[reflect.Type]initFunc
 
 	eagerSingletons map[reflect.Type]struct{}
 	parallelScopes  map[reflect.Type]struct{}
 
-	defaultInit   func(c Dic, t reflect.Type, getter func(c Dic, service any)) error
-	defaultOnInit func(c Dic, t reflect.Type, service any)
-	errorHandler  func(c Dic, err error) error
+	defaultInit   defaultInitFunc
+	defaultOnInit defaultOnInitFunc
+	errorHandler  errorHandlerFunc
 }
 
 type Builder *builder
@@ -49,22 +64,23 @@ func NewBuilder() Builder {
 	return &builder{
 		errors:          make([]error, 0),
 		onInit:          map[reflect.Type][]onInit{},
-		init:            map[reflect.Type]initialize{},
+		init:            map[reflect.Type]initFunc{},
 		eagerSingletons: map[reflect.Type]struct{}{},
 		parallelScopes:  map[reflect.Type]struct{}{},
-		defaultInit: func(c Dic, t reflect.Type, getter func(c Dic, service any)) error {
+		defaultInit: func(c Dic, t reflect.Type, getter getterFunc) error {
 			// cannot try to get not inited function.
 			// service didn't get manually initialized or its init method is missing
 			return fmt.Errorf("there is no init function for %s\n", t.String())
 		},
-		defaultOnInit: func(c Dic, t reflect.Type, service any) {
+		defaultOnInit: func(c Dic, t reflect.Type, service any) error {
 			// do nothing. there can be services which have nothing done on their start
+			return nil
 		},
 		errorHandler: func(c Dic, err error) error { panic(err.Error()) },
 	}
 }
 
-func AddInit[Service any](b *builder, init func(c Dic, getter func(c Dic, service Service))) {
+func AddInit[Service any](b *builder, init initTFunc[Service]) {
 	t := reflect.TypeFor[Service]()
 	if _, ok := b.init[t]; ok {
 		err := errors.Join(
@@ -75,8 +91,8 @@ func AddInit[Service any](b *builder, init func(c Dic, getter func(c Dic, servic
 		return
 	}
 
-	tInit := func(c Dic, onInit func(c Dic, service any)) {
-		init(c, func(c Dic, service Service) { onInit(c, service) })
+	var tInit initFunc = func(c Dic, getter func(c Dic, service any) error) error {
+		return init(c, func(c Dic, service Service) error { return getter(c, service) })
 	}
 
 	b.init[t] = tInit
@@ -89,18 +105,20 @@ func AddInit[Service any](b *builder, init func(c Dic, getter func(c Dic, servic
 // - log that getter is missing
 // - call getter with some default implementation
 // - return error to be handled by package
-func SetMissingInit(b *builder, missingInit func(c Dic, t reflect.Type, getter func(c Dic, service any)) error) {
+func SetMissingInit(b *builder, missingInit defaultInitFunc) {
 	b.defaultInit = missingInit
 }
 
-func AddOnInit[Service any](b *builder, order Order, onInitListener func(c Dic, service Service, next func(c Dic))) {
+func AddOnInit[Service any](b *builder, order Order, onInitListener onInitTFunc[Service]) {
 	t := reflect.TypeFor[Service]()
 	if _, ok := b.onInit[t]; !ok {
 		b.onInit[t] = make([]onInit, 0, 1)
 	}
 	init := onInit{
-		order:  order,
-		onInit: func(c Dic, service any, next func(c Dic)) { onInitListener(c, service.(Service), next) },
+		order: order,
+		onInit: func(c Dic, service any, next func(c Dic) error) error {
+			return onInitListener(c, service.(Service), next)
+		},
 	}
 	b.onInit[t] = append(b.onInit[t], init)
 }
@@ -109,11 +127,11 @@ func AddOnInit[Service any](b *builder, order Order, onInitListener func(c Dic, 
 // when on init is missing we can:
 // - do nothing
 // - do something on init by default
-func SetMissingOnInit(b *builder, missingOnInit func(c Dic, t reflect.Type, service any)) {
+func SetMissingOnInit(b *builder, missingOnInit defaultOnInitFunc) {
 	b.defaultOnInit = missingOnInit
 }
 
-func SetErrorHandler(b *builder, handler func(c Dic, err error) error) {
+func SetContainerErrorHandler(b *builder, handler errorHandlerFunc) {
 	b.errorHandler = handler
 }
 
