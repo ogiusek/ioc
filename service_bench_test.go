@@ -322,7 +322,7 @@ func BenchmarkGetTInitialized(b *testing.B) {
 	})
 }
 
-func BenchmarkGetManyExactly2Initialized(b *testing.B) {
+func getManyBenchmark(b *testing.B, getter any) {
 	b.ReportAllocs()
 	builder := ioc.NewBuilder()
 	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int) error) error {
@@ -331,90 +331,71 @@ func BenchmarkGetManyExactly2Initialized(b *testing.B) {
 		return onInit(c, i)
 	})
 	ioc.MarkEagerSingleton[int](builder)
-	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic) error) error {
-		*service += 7
-		return next(c)
-	})
 
 	ioc.Build(builder, func(c ioc.Dic) error {
 		b.ResetTimer()
 
-		sum := 0
 		for i := 0; i < b.N; i++ {
-			ioc.GetMany(c, func(service, _ int) {
-				sum += service
-			})
-		}
-		if sum != b.N*7 {
-			b.Errorf("sum != b.N * 7; sum == %d; b.N * 7 == %d;\n", sum, b.N*7)
+			ioc.GetMany(c, getter)
 		}
 		return nil
 	})
 }
 
-func BenchmarkGetManyExactly3Initialized(b *testing.B) {
+func BenchmarkGetManyExactly1Initialized(b *testing.B) { getManyBenchmark(b, func(s int) {}) }
+func BenchmarkGetManyExactly2Initialized(b *testing.B) { getManyBenchmark(b, func(s, _ int) {}) }
+func BenchmarkGetManyExactly3Initialized(b *testing.B) { getManyBenchmark(b, func(s, _, _ int) {}) }
+func BenchmarkGetManyExactly4Initialized(b *testing.B) { getManyBenchmark(b, func(s, _, _, _ int) {}) }
+
+func getServicesBenchmark[Services any](b *testing.B) {
 	b.ReportAllocs()
 	builder := ioc.NewBuilder()
 	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int) error) error {
 		var i int = 0
-		if err := ioc.Init(c, &i); err != nil {
-			return err
-		}
+		ioc.Init(c, &i)
 		return onInit(c, i)
 	})
 	ioc.MarkEagerSingleton[int](builder)
-	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic) error) error {
-		*service += 7
-		return next(c)
-	})
 
 	ioc.Build(builder, func(c ioc.Dic) error {
 		b.ResetTimer()
 
-		sum := 0
 		for i := 0; i < b.N; i++ {
-			ioc.GetMany(c, func(service, _, _ int) {
-				sum += service
-			})
-		}
-		if sum != b.N*7 {
-			b.Errorf("sum != b.N * 7; sum == %d; b.N * 7 == %d;\n", sum, b.N*7)
+			ioc.GetServices(c, func(c ioc.Dic, s Services) error { return nil })
 		}
 		return nil
 	})
 }
 
-func BenchmarkGetManyExactly4Initialized(b *testing.B) {
-	b.ReportAllocs()
-	builder := ioc.NewBuilder()
-	ioc.AddInit(builder, func(c ioc.Dic, onInit func(c ioc.Dic, service int) error) error {
-		var i int = 0
-		if err := ioc.Init(c, &i); err != nil {
-			return err
-		}
-		return onInit(c, i)
-	})
-	ioc.MarkEagerSingleton[int](builder)
-	ioc.AddOnInit(builder, 0, func(c ioc.Dic, service *int, next func(c ioc.Dic) error) error {
-		*service += 7
-		return next(c)
-	})
-
-	ioc.Build(builder, func(c ioc.Dic) error {
-		b.ResetTimer()
-
-		sum := 0
-		for i := 0; i < b.N; i++ {
-			ioc.GetMany(c, func(service, _, _, _ int) {
-				sum += service
-			})
-		}
-		if sum != b.N*7 {
-			b.Errorf("sum != b.N * 7; sum == %d; b.N * 7 == %d;\n", sum, b.N*7)
-		}
-
-		return nil
-	})
+func BenchmarkGetServicesExactly1Field(b *testing.B) {
+	type Services struct {
+		S1 int `inject:"1"`
+	}
+	getServicesBenchmark[Services](b)
+}
+func BenchmarkGetServicesExactly2Field(b *testing.B) {
+	type Services struct {
+		S1 int `inject:"1"`
+		S2 int `inject:"1"`
+	}
+	getServicesBenchmark[Services](b)
+}
+func BenchmarkGetServicesExactly3Field(b *testing.B) {
+	type Services struct {
+		S1 int `inject:"1"`
+		S2 int `inject:"1"`
+		S3 int `inject:"1"`
+	}
+	getServicesBenchmark[Services](b)
+}
+func BenchmarkGetServicesExactly4Field(b *testing.B) {
+	type Services struct {
+		S1 int `inject:"1"`
+		S2 int `inject:"1"`
+		S3 int `inject:"1"`
+		S4 int `inject:"1"`
+	}
+	getServicesBenchmark[Services](b)
 }
 
 func BenchmarkGetNewScope(b *testing.B) {

@@ -8,8 +8,9 @@ import (
 )
 
 var (
-	ErrCircularDependency error = errors.New("circular dependency. cannot request pending service")
-	ErrNotAFunction       error = errors.New("argument is not a function")
+	ErrCircularDependency error = errors.Join(ErrIoc, errors.New("circular dependency. cannot request pending service"))
+	ErrNotAFunction       error = errors.Join(ErrIoc, errors.New("argument is not a function"))
+	ErrNotAStruct         error = errors.Join(ErrIoc, errors.New("argument is not a struct"))
 )
 
 func Build(b *builder, getter func(c Dic) error) []error {
@@ -17,11 +18,14 @@ func Build(b *builder, getter func(c Dic) error) []error {
 		return b.errors
 	}
 	c := Dic(&dic{
-		onInit:          make(map[reflect.Type]containerOnInitFunc),
-		defaultInit:     b.defaultInit,
-		init:            make(map[reflect.Type]initFunc),
-		defaultOnInit:   b.defaultOnInit,
-		errHandler:      b.errorHandler,
+		dicShared: &dicShared{
+			onInit:         make(map[reflect.Type]containerOnInitFunc),
+			defaultInit:    b.defaultInit,
+			init:           make(map[reflect.Type]initFunc),
+			defaultOnInit:  b.defaultOnInit,
+			errHandler:     b.errorHandler,
+			parallelScopes: make(map[reflect.Type]struct{}),
+		},
 		services:        make(map[reflect.Type]any),
 		pendingServices: make(map[reflect.Type]struct{}),
 	})
@@ -87,8 +91,7 @@ type containerOnInitFunc func(c Dic, service any) error
 
 type Dic *dic
 
-type dic struct {
-	// add shared
+type dicShared struct {
 	onInit        map[reflect.Type]containerOnInitFunc
 	defaultOnInit defaultOnInitFunc
 
@@ -98,6 +101,10 @@ type dic struct {
 	errHandler func(c Dic, err error) error
 
 	parallelScopes map[reflect.Type]struct{}
+}
+
+type dic struct {
+	*dicShared
 
 	services        map[reflect.Type]any
 	pendingServices map[reflect.Type]struct{}
@@ -128,12 +135,7 @@ func withServiceT(c Dic, t reflect.Type, service any, getter func(c Dic)) {
 	}
 	services[t] = service
 	getter(Dic(&dic{
-		onInit:          c.onInit,
-		defaultOnInit:   c.defaultOnInit,
-		init:            c.init,
-		defaultInit:     c.defaultInit,
-		errHandler:      c.errHandler,
-		parallelScopes:  c.parallelScopes,
+		dicShared:       c.dicShared,
 		services:        services,
 		pendingServices: c.pendingServices,
 	}))
@@ -285,6 +287,52 @@ func GetMany(c Dic, getter any) error {
 		}
 	}
 
+	if err := call(c); err != nil {
+		return c.errHandler(c, err)
+	}
+	return nil
+}
+
+// GetServices initializes a struct of type Services and injects dependencies
+// into fields marked with `inject:"1"` struct tags.
+//
+//	type MyServices struct {
+//	    Service MyService  `inject:"1"` // will inject
+//	    NonInjectedField string // will ignore
+//	}
+func GetServices[Services any](c Dic, getter func(c Dic, s Services) error) error {
+	servicesType := reflect.TypeFor[Services]()
+	if servicesType.Kind() != reflect.Struct {
+		err := errors.Join(ErrNotAStruct, fmt.Errorf("\"%s\" is not a struct", servicesType.String()))
+		return c.errHandler(c, err)
+	}
+
+	var services Services
+	servicesValue := reflect.ValueOf(&services).Elem()
+
+	call := func(c Dic) error {
+		return getter(c, services)
+	}
+
+	for i := 0; i < servicesType.NumField(); i++ {
+		field := servicesType.Field(i)
+
+		if tag := field.Tag.Get("inject"); tag != "1" {
+			continue
+		}
+
+		prevCall := call
+		call = func(c Dic) error {
+			fieldValue := servicesValue.Field(i)
+			fieldType := field.Type
+
+			return GetAny(c, fieldType, func(c Dic, service any) error {
+				serviceValue := reflect.ValueOf(service)
+				fieldValue.Set(serviceValue)
+				return prevCall(c)
+			})
+		}
+	}
 	if err := call(c); err != nil {
 		return c.errHandler(c, err)
 	}

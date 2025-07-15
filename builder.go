@@ -7,7 +7,10 @@ import (
 )
 
 var (
-	ErrInitMethodAlreadyExists error = errors.New("init method already exists")
+	// package assiciated error
+	ErrIoc error = errors.New("ioc error")
+
+	ErrInitMethodAlreadyExists error = errors.Join(ErrIoc, errors.New("init method already exists"))
 )
 
 //

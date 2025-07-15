@@ -271,6 +271,17 @@ if `Dic` is requested then its injected not as service but as latest list of ser
 func GetMany(c Dic, getter any) error
 ```
 
+```go
+// GetServices initializes a struct of type Services and injects dependencies
+// into fields marked with `inject:"1"` struct tags.
+//
+//	type MyServices struct {
+//	    Service MyService  `inject:"1"` // will inject
+//	    NonInjectedField string // will ignore
+//	}
+func GetServices[Services any](c Dic, getter func(c Dic, s Services) error) error
+```
+
 ## Contributing
 
 Contact us we are open for suggestions
