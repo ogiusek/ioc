@@ -1,8 +1,6 @@
 package ioc
 
 import (
-	"errors"
-	"fmt"
 	"log"
 	"reflect"
 	"sort"
@@ -22,7 +20,6 @@ type serviceID any
 
 type builder struct {
 	wraps                 map[serviceID][]ctorWrap
-	dependencies          map[reflect.Type][]reflect.Type
 	services              map[serviceID]Service
 	eagerSingletonLoading bool
 	scopes                map[ScopeID]struct{}
@@ -36,7 +33,6 @@ func NewBuilder() Builder {
 	return Builder{
 		b: &builder{
 			wraps:                 map[serviceID][]ctorWrap{},
-			dependencies:          map[reflect.Type][]reflect.Type{},
 			services:              map[serviceID]Service{},
 			eagerSingletonLoading: true,
 			scopes:                map[ScopeID]struct{}{},
@@ -54,10 +50,8 @@ func (b Builder) Clone() Builder {
 		},
 	}
 	for key, val := range b.b.wraps {
-		wraps := make([]ctorWrap, 0, len(val))
-		for _, val := range val {
-			wraps = append(wraps, val)
-		}
+		wraps := make([]ctorWrap, len(val))
+		copy(wraps, val)
 		clonedB.b.wraps[key] = wraps
 	}
 	for key, val := range b.b.services {
@@ -80,96 +74,8 @@ func (a ctorWraps) Less(i, j int) bool {
 	return false
 }
 
-func validateDependencies(b Builder) error {
-	visited := make(map[reflect.Type]bool)
-	visiting := make(map[reflect.Type]bool)
-	var dfsValidate func(
-		currentType reflect.Type,
-		path []reflect.Type,
-	) error
-	dfsValidate = func(
-		currentType reflect.Type,
-		path []reflect.Type,
-	) error {
-		visiting[currentType] = true
-		path = append(path, currentType)
-
-		currentDeps, ok := b.b.dependencies[currentType]
-		if !ok {
-			currentDeps = []reflect.Type{}
-		}
-
-		for _, depType := range currentDeps {
-			// Check for circular dependency
-			if visiting[depType] {
-				// Cycle detected! Find the start of the cycle in the path.
-				cycleStartIdx := -1
-				for i, t := range path {
-					if t == depType {
-						cycleStartIdx = i
-						break
-					}
-				}
-				return errors.Join(
-					ErrCircularDependency,
-					fmt.Errorf("%v", append(path[cycleStartIdx:], depType)),
-				)
-				// return &ErrCircularDependency{Path: append(path[cycleStartIdx:], depType)}
-			}
-
-			// Check for missing dependency: If depType is not a key in the map, it's missing.
-			// We only consider it missing if it's not already the currentType itself (self-dependency).
-			// A self-dependency is allowed as long as it doesn't form a cycle with other nodes.
-			if _, exists := b.b.dependencies[depType]; !exists && depType != currentType {
-				return errors.Join(
-					ErrMissingDependency,
-					fmt.Errorf("missing \"%s\" required by \"%s\"", depType.String(), currentType.String()),
-				)
-			}
-
-			// If the dependency has not been fully visited, recurse.
-			if !visited[depType] {
-				if err := dfsValidate(depType, path); err != nil {
-					return err // Propagate error from recursion
-				}
-			}
-		}
-
-		// Done processing currentType and all its reachable dependencies.
-		// Mark as visited and remove from visiting.
-		delete(visiting, currentType)
-		visited[currentType] = true
-
-		return nil
-	}
-
-	// Iterate over each type as a potential starting point for DFS.
-	for rootType := range b.b.dependencies {
-		serviceKey := serviceKey(rootType)
-		if _, ok := b.b.services[serviceKey]; !ok {
-			return errors.Join(
-				ErrServiceIsntRegistered,
-				fmt.Errorf("\"%s\" isn't registered", rootType.String()),
-			)
-		}
-		if visited[rootType] {
-			continue // Already processed this branch
-		}
-
-		// Perform DFS from the current root.
-		if err := dfsValidate(rootType, []reflect.Type{}); err != nil {
-			return err // Propagate any error found
-		}
-	}
-
-	return nil // No errors found
-}
-
 func (b Builder) Build() Dic {
 	services := b.b.services
-	if err := validateDependencies(b); err != nil {
-		panic(err)
-	}
 	for key, service := range services {
 		wraps, ok := b.b.wraps[key]
 		if !ok || len(wraps) == 0 {
@@ -180,10 +86,12 @@ func (b Builder) Build() Dic {
 		w := []ctorWrap(wraps)
 		service.creator = func(d Dic) any {
 			s := ctor(d)
-			for _, wrap := range w {
-				s = wrap.wraps(d, s)
-			}
 			return s
+		}
+		service.wraps = func(d Dic, s any) {
+			for _, wrap := range w {
+				wrap.wraps(d, s)
+			}
 		}
 		services[key] = service
 	}
@@ -191,7 +99,7 @@ func (b Builder) Build() Dic {
 		c: &dic{
 			serviceRegisterMutex: &sync.Mutex{},
 			services:             services,
-			scopedCreateLockset:  lockset.New(),
+			createLockset:        lockset.New(),
 			scopes:               map[ScopeID]map[serviceID]any{},
 		},
 	}
@@ -204,12 +112,14 @@ func (b Builder) Build() Dic {
 				continue
 			}
 			if service.additional == nil {
-				c.c.scopedCreateLockset.Lock(key)
+				c.c.createLockset.Lock(key)
+				serviceValue := service.creator(c)
 				service.additional = SingletonAdditional{
-					Service: service.creator(c),
+					Service: serviceValue,
 				}
 				b.b.services[key] = service
-				c.c.scopedCreateLockset.Unlock(key)
+				c.c.createLockset.Unlock(key)
+				service.wraps(c, serviceValue)
 			}
 		}
 	}
@@ -228,7 +138,6 @@ func RegisterSingleton[Service any](b Builder, creator func(c Dic) Service) Buil
 	}
 	service := newSingleton(func(c Dic) any { return creator(c) })
 	b.b.services[key] = service
-	b.b.dependencies[reflect.TypeFor[Service]()] = nil
 	return b
 }
 
@@ -246,7 +155,6 @@ func RegisterScoped[Service any](b Builder, scope ScopeID, creator func(c Dic) S
 	}
 	service := newScoped(scope, func(c Dic) any { return creator(c) })
 	b.b.services[key] = service
-	b.b.dependencies[reflect.TypeFor[Service]()] = nil
 	return b
 }
 
@@ -258,13 +166,13 @@ func RegisterTransient[Service any](b Builder, creator func(c Dic) Service) Buil
 	}
 	service := newTransient(func(c Dic) any { return creator(c) })
 	b.b.services[key] = service
-	b.b.dependencies[reflect.TypeFor[Service]()] = nil
 	return b
 }
 
 // wraps with the smallest id are applied first
 // wraps with the same order are applied randomly
-func WrapService[Service any](b Builder, order Order, wrap func(c Dic, s Service) Service) Builder {
+func WrapService[Service any](b Builder, wrap func(c Dic, s Service)) Builder {
+	order := DefaultOrder
 	key := typeKey[Service]()
 	wraps := newCtorWrap(order, wrap)
 
@@ -276,15 +184,15 @@ func WrapService[Service any](b Builder, order Order, wrap func(c Dic, s Service
 	return b
 }
 
-func RegisterDependencies[Service any](b Builder, dependencies ...reflect.Type) Builder {
-	tType := reflect.TypeFor[Service]()
-	b.b.dependencies[tType] = append(b.b.dependencies[tType], dependencies...)
-	return b
-}
+func WrapServiceInOrder[Service any](b Builder, order Order, wrap func(c Dic, s Service)) Builder {
+	key := typeKey[Service]()
+	wraps := newCtorWrap(order, wrap)
 
-func RegisterDependency[Service any, Dependency any](b Builder) Builder {
-	tType := reflect.TypeFor[Service]()
-	b.b.dependencies[tType] = append(b.b.dependencies[tType], reflect.TypeFor[Dependency]())
+	if _, ok := b.b.wraps[key]; !ok {
+		b.b.wraps[key] = make([]ctorWrap, 0, 1)
+	}
+
+	b.b.wraps[key] = append(b.b.wraps[key], wraps)
 	return b
 }
 

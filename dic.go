@@ -13,8 +13,8 @@ type dic struct {
 	serviceRegisterMutex *sync.Mutex
 	services             map[serviceID]Service
 
-	scopedCreateLockset *lockset.Set
-	scopes              map[ScopeID]map[serviceID]any
+	createLockset *lockset.Set
+	scopes        map[ScopeID]map[serviceID]any
 }
 
 type Dic struct {
@@ -37,7 +37,7 @@ func (c Dic) TryScope(scope ScopeID) (Dic, error) {
 		c: &dic{
 			serviceRegisterMutex: c.c.serviceRegisterMutex,
 			services:             c.c.services,
-			scopedCreateLockset:  lockset.New(),
+			createLockset:        lockset.New(),
 			scopes:               map[ScopeID]map[serviceID]any{},
 		},
 	}
@@ -63,7 +63,7 @@ func (c Dic) Inject(servicePointer any) error {
 		return ErrIsntPointer
 	}
 	serviceValue := reflect.ValueOf(servicePointer)
-	if serviceValue.Kind() != reflect.Ptr {
+	if serviceValue.Kind() != reflect.Pointer {
 		return ErrIsntPointer
 	}
 	serviceElement := serviceValue.Elem()
@@ -74,7 +74,7 @@ func (c Dic) Inject(servicePointer any) error {
 	if !ok {
 		return errors.Join(
 			ErrServiceIsntRegistered,
-			errors.New(fmt.Sprintf("Service of type '%s' is not registered", serviceElement.Type().String())),
+			fmt.Errorf("Service of type '%s' is not registered", serviceElement.Type().String()),
 		)
 	}
 
@@ -83,15 +83,18 @@ func (c Dic) Inject(servicePointer any) error {
 	switch service.lifetime {
 	case singleton:
 		if service.additional == nil {
-			c.c.scopedCreateLockset.Lock(key)
+			if ok := c.c.createLockset.TryLock(key); !ok {
+				panic("detected circular dependency")
+			}
 			service.additional = SingletonAdditional{
 				Service: service.creator(c),
 			}
 			c.c.services[key] = service
-			c.c.scopedCreateLockset.Unlock(key)
+			c.c.createLockset.Unlock(key)
+			service.wraps(c, service.additional.(SingletonAdditional).Service)
 		}
 		existing = service.additional.(SingletonAdditional).Service
-		break
+		service.wraps(c, serviceValue)
 	case scoped:
 		additional := service.additional.(ScopedAdditional)
 		scope, ok := c.c.scopes[additional.Scope]
@@ -100,18 +103,22 @@ func (c Dic) Inject(servicePointer any) error {
 		}
 		existing, ok = scope[key]
 		if !ok {
-			c.c.scopedCreateLockset.Lock(key)
+			if ok := c.c.createLockset.TryLock(key); !ok {
+				panic("detected circular dependency")
+			}
 			existing, ok = c.c.scopes[key]
 			if !ok {
 				existing = service.creator(c)
 				scope[key] = existing
+				c.c.createLockset.Unlock(key)
+				service.wraps(c, existing)
+			} else {
+				c.c.createLockset.Unlock(key)
 			}
-			c.c.scopedCreateLockset.Unlock(key)
 		}
-		break
 	case transient:
 		existing = service.creator(c)
-		break
+		service.wraps(c, existing)
 	default:
 		panic("requested service has invalid lifetime")
 	}
@@ -124,7 +131,6 @@ func (c Dic) Inject(servicePointer any) error {
 		} else {
 			newServiceValue = reflect.ValueOf(existing)
 		}
-		break
 	default:
 		newServiceValue = reflect.ValueOf(existing)
 	}
@@ -151,10 +157,10 @@ func (c Dic) Inject(servicePointer any) error {
 // can return ErrIsntPointerToStruct error or any error returned by c.Inject() method
 func (c Dic) InjectServices(services any) error {
 	servicePointer := reflect.ValueOf(services)
-	if servicePointer.Kind() != reflect.Ptr {
+	if servicePointer.Kind() != reflect.Pointer {
 		return errors.Join(
 			ErrIsntPointerToStruct,
-			errors.New(fmt.Sprintf("not a pointer: %T", services)),
+			fmt.Errorf("not a pointer: %T", services),
 		)
 	}
 
@@ -162,7 +168,7 @@ func (c Dic) InjectServices(services any) error {
 	if serviceElem.Kind() != reflect.Struct {
 		return errors.Join(
 			ErrIsntPointerToStruct,
-			errors.New(fmt.Sprintf("expected pointer to struct, got pointer to %s", serviceElem.Kind())),
+			fmt.Errorf("expected pointer to struct, got pointer to %s", serviceElem.Kind()),
 		)
 	}
 

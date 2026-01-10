@@ -2,9 +2,9 @@ package ioc_test
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"reflect"
+	"runtime/debug"
 	"testing"
 
 	"github.com/ogiusek/ioc/v2"
@@ -58,9 +58,9 @@ func TestContainerForDifferentTypes(t *testing.T) {
 	RunContainerTestsForType[any](t, 1, "two", func(a, b any) bool { return marshal(a) == marshal(b) })
 
 	{
-		var val int = 42
-		var unsafePtr1 uintptr = uintptr(reflect.ValueOf(&val).Pointer())
-		var unsafePtr2 uintptr = uintptr(reflect.ValueOf(new(int)).Pointer())
+		val := int(42)
+		unsafePtr1 := uintptr(reflect.ValueOf(&val).Pointer())
+		unsafePtr2 := uintptr(reflect.ValueOf(new(int)).Pointer())
 		RunContainerTestsForType[uintptr](t, unsafePtr1, unsafePtr2, func(a, b uintptr) bool { return a == b })
 	}
 
@@ -110,14 +110,11 @@ func RunContainerTestsForType[Service any](
 			defer func() {
 				if r := recover(); r != nil {
 					afterPanic()
-					t.Errorf("container shouldn't panic when injecting not existing service: %s", r)
+				} else {
+					t.Errorf("container shouldn't panic when injecting not existing service: %s\n%s", r, debug.Stack())
 				}
 			}()
-			var service Service
-			err := b.Build().Inject(&service)
-			if errors.Is(ioc.ErrServiceIsntRegistered, err) {
-				t.Errorf("expected ErrServiceIsntRegistered error but got %s", err)
-			}
+			_ = ioc.Get[Service](b.Build())
 		})
 	}
 
@@ -152,8 +149,7 @@ func RunContainerTestsForType[Service any](
 			b := b.Clone()
 
 			c := b.Build()
-			var service Service
-			c.Inject(&service)
+			service := ioc.Get[Service](c)
 
 			if !equal(service, serviceA) {
 				t.Errorf("retrieved service is not equal to registered service")
@@ -165,16 +161,15 @@ func RunContainerTestsForType[Service any](
 			defer func() {
 				if r := recover(); r != nil {
 					afterPanic()
-					t.Errorf("container panics when injecting singleton service requiring service: %s", r)
+					t.Errorf("container panics when injecting singleton service requiring service: %s\n%s", r, debug.Stack())
 				}
 			}()
 
 			b := b.Clone()
 			type RequiringService struct{ Service Service }
-			ioc.RegisterSingleton(b, func(c ioc.Dic) RequiringService { return RequiringService{Service: ioc.Get[Service](c)} })
+			ioc.RegisterSingleton(b, func(c ioc.Dic) RequiringService { return RequiringService{Service: serviceA} })
 			c := b.Build()
-			var service RequiringService
-			c.Inject(&service)
+			service := ioc.Get[RequiringService](c)
 
 			if !equal(service.Service, serviceA) {
 				t.Errorf("retrieved service is not equal to registered service")
@@ -186,7 +181,7 @@ func RunContainerTestsForType[Service any](
 			defer func() {
 				if r := recover(); r != nil {
 					afterPanic()
-					t.Errorf("container panics when injecting scoped service requiring service")
+					t.Errorf("container panics when injecting scoped service requiring service: %s\n%s", r, debug.Stack())
 				}
 			}()
 
@@ -208,7 +203,7 @@ func RunContainerTestsForType[Service any](
 			defer func() {
 				if r := recover(); r != nil {
 					afterPanic()
-					t.Errorf("container panics when injecting transient service requiring service")
+					t.Errorf("container panics when injecting transient service requiring service\n%s", debug.Stack())
 				}
 			}()
 
@@ -216,8 +211,7 @@ func RunContainerTestsForType[Service any](
 			type RequiringService struct{ Service Service }
 			ioc.RegisterTransient(b, func(c ioc.Dic) RequiringService { return RequiringService{Service: ioc.Get[Service](c)} })
 			c := b.Build()
-			var service RequiringService
-			c.Inject(&service)
+			service := ioc.Get[RequiringService](c)
 
 			if !equal(service.Service, serviceA) {
 				t.Errorf("retrieved service is not equal to registered service")
@@ -229,7 +223,7 @@ func RunContainerTestsForType[Service any](
 			defer func() {
 				if r := recover(); r != nil {
 					afterPanic()
-					t.Errorf("container panics when injecting registered services: %s", r)
+					t.Errorf("container panics when injecting registered services: %s\n%s", r, debug.Stack())
 				}
 			}()
 
@@ -241,9 +235,8 @@ func RunContainerTestsForType[Service any](
 			}
 
 			c := b.Build()
-			var services Services
+			services := ioc.GetServices[Services](c)
 			var defaultServices Services
-			c.InjectServices(&services)
 
 			if !equal(services.A, serviceA) {
 				t.Errorf("injected service is not equal to registered service")
@@ -473,10 +466,9 @@ func TestGettingServices(t *testing.T) {
 	b = ioc.RegisterSingleton(b, func(c ioc.Dic) Service { return Service{value: val} })
 
 	c := b.Build()
-	var services Services
-	c.InjectServices(&services)
+	services := ioc.GetServices[Services](c)
 
-	if services.Service.value != val {
+	if services.value != val {
 		t.Errorf("injected value is not equal to expected")
 	}
 }
@@ -495,4 +487,39 @@ func TestDoubleInjection(t *testing.T) {
 	if wrapper.Service.Val != 1 {
 		t.Errorf("service inside other service isn't equal to its expected value")
 	}
+}
+
+func TestRegister(t *testing.T) {
+	b := ioc.NewBuilder()
+	type Service struct{ Val int }
+	ioc.RegisterSingleton(b, func(c ioc.Dic) *Service {
+		return &Service{7}
+	})
+	b.Build()
+	c := b.Build()
+	service := ioc.Get[*Service](c)
+	if service.Val != 7 {
+		t.Errorf("unexpected value expected %v and got %v", 7, service.Val)
+	}
+}
+
+func TestCircularDependencyDetection(t *testing.T) {
+	b := ioc.NewBuilder()
+
+	type ServiceA struct{ Val int }
+	type ServiceB struct{ Val int }
+
+	ioc.RegisterSingleton(b, func(c ioc.Dic) ServiceA { return ServiceA{ioc.Get[ServiceB](c).Val} })
+	ioc.RegisterSingleton(b, func(c ioc.Dic) ServiceB { return ServiceB{ioc.Get[ServiceA](c).Val} })
+
+	t.Run("panics", func(t *testing.T) {
+		defer func() {
+			if r := recover(); r != nil {
+				afterPanic()
+			}
+		}()
+		c := b.Build()
+		ioc.Get[ServiceA](c)
+		t.Errorf("container should panic on circular dependency detenction")
+	})
 }
