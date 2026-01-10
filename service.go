@@ -10,6 +10,7 @@ type SingletonAdditional struct {
 
 type Service struct {
 	creator  func(Dic) any
+	wraps    func(Dic, any)
 	lifetime lifetime
 	// initialized service for singleton
 	// scope name for scoped
@@ -19,6 +20,7 @@ type Service struct {
 func newSingleton(creator func(Dic) any) Service {
 	return Service{
 		creator:  creator,
+		wraps:    func(d Dic, a any) {},
 		lifetime: singleton,
 	}
 }
@@ -26,6 +28,7 @@ func newSingleton(creator func(Dic) any) Service {
 func newScoped(scope ScopeID, creator func(Dic) any) Service {
 	return Service{
 		creator:    creator,
+		wraps:      func(d Dic, a any) {},
 		lifetime:   scoped,
 		additional: ScopedAdditional{Scope: scope},
 	}
@@ -34,6 +37,7 @@ func newScoped(scope ScopeID, creator func(Dic) any) Service {
 func newTransient(creator func(Dic) any) Service {
 	return Service{
 		creator:  creator,
+		wraps:    func(d Dic, a any) {},
 		lifetime: transient,
 	}
 }
@@ -41,15 +45,15 @@ func newTransient(creator func(Dic) any) Service {
 type Order int
 
 const (
-	DefaultOrder = iota
+	DefaultOrder Order = iota
 )
 
 type ctorWrap struct {
 	order Order
-	wraps func(c Dic, s any) any
+	wraps func(c Dic, s any)
 }
 
-func newCtorWrap[T any](order Order, wrap func(c Dic, s T) T) ctorWrap {
+func newCtorWrap[T any](order Order, wrap func(c Dic, s T)) ctorWrap {
 	w := wrap
-	return ctorWrap{order: order, wraps: func(c Dic, s any) any { return w(c, s.(T)) }}
+	return ctorWrap{order: order, wraps: func(c Dic, s any) { w(c, s.(T)) }}
 }

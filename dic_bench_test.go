@@ -60,8 +60,7 @@ func BenchmarkInjectSingleton(b *testing.B) {
 
 	b.ResetTimer()
 	for i := 0; i < b.N; i++ {
-		var service int
-		c.Inject(&service)
+		_ = ioc.Get[int](c)
 	}
 }
 

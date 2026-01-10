@@ -20,7 +20,7 @@ func TryGet[T any](c Dic) (T, error) {
 		var t T
 		return t, errors.Join(
 			ErrServiceIsntRegistered,
-			errors.New(fmt.Sprintf("Service of type '%s' is not registered", reflect.TypeFor[T]().String())),
+			fmt.Errorf("Service of type '%s' is not registered", reflect.TypeFor[T]().String()),
 		)
 	}
 
@@ -29,15 +29,17 @@ func TryGet[T any](c Dic) (T, error) {
 	switch service.lifetime {
 	case singleton:
 		if service.additional == nil {
-			c.c.scopedCreateLockset.Lock(key)
+			if ok := c.c.createLockset.TryLock(key); !ok {
+				panic("detected circular dependency")
+			}
 			service.additional = SingletonAdditional{
 				Service: service.creator(c),
 			}
 			c.c.services[key] = service
-			c.c.scopedCreateLockset.Unlock(key)
+			c.c.createLockset.Unlock(key)
+			service.wraps(c, service.additional.(SingletonAdditional).Service)
 		}
 		res = service.additional.(SingletonAdditional).Service
-		break
 	case scoped:
 		additional := service.additional.(ScopedAdditional)
 		scope, ok := c.c.scopes[additional.Scope]
@@ -47,18 +49,21 @@ func TryGet[T any](c Dic) (T, error) {
 		}
 		res, ok = scope[key]
 		if !ok {
-			c.c.scopedCreateLockset.Lock(key)
+			if ok := c.c.createLockset.TryLock(key); !ok {
+				panic("detected circular dependency")
+			}
 			res, ok = c.c.scopes[key]
 			if !ok {
 				res = service.creator(c)
 				scope[key] = res
+				c.c.createLockset.Unlock(key)
+				service.wraps(c, res)
+			} else {
+				c.c.createLockset.Unlock(key)
 			}
-			c.c.scopedCreateLockset.Unlock(key)
 		}
-		break
 	case transient:
 		res = service.creator(c)
-		break
 	default:
 		panic("requested service has invalid lifetime")
 	}
