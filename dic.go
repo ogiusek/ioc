@@ -181,8 +181,10 @@ func (c Dic) InjectServices(services any) error {
 		}
 
 		fieldPointer := serviceElem.Field(i).Addr().Interface()
-		err := c.Inject(fieldPointer)
-		if err != nil {
+		if err := c.Inject(fieldPointer); err == nil {
+			continue
+		}
+		if err := c.InjectServices(fieldPointer); err != nil {
 			return err
 		}
 	}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/ogiusek/ioc/v2"
+	"github.com/optimus-hft/lockset/v2"
 )
 
 // go test -bench=.
@@ -130,5 +131,16 @@ func BenchmarkMapPtrWithMutexForComparison(b *testing.B) {
 		mutex.Lock()
 		_ = (*testedMap)[key]
 		mutex.Unlock()
+	}
+}
+
+func BenchmarkLocksetLockAndUnlock(b *testing.B) {
+	m := lockset.New()
+	k := "aa"
+	for i := 0; i < b.N; i++ {
+		if ok := m.TryLock(k); !ok {
+			panic("D;")
+		}
+		m.Unlock(k)
 	}
 }
