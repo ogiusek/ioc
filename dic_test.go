@@ -251,6 +251,38 @@ func RunContainerTestsForType[Service any](
 			}
 		})
 
+		t.Run("panics", func(t *testing.T) {
+			defer func() {
+				if r := recover(); r != nil {
+					afterPanic()
+					t.Errorf("container panics when injecting registered services: %s\n%s", r, debug.Stack())
+				}
+			}()
+
+			b := b.Clone()
+			type Services struct {
+				A Service `inject:"1"`
+				B Service `inject:"0"`
+				C Service
+			}
+
+			c := b.Build()
+			services := *ioc.GetServices[*Services](c)
+			var defaultServices Services
+
+			if !equal(services.A, serviceA) {
+				t.Errorf("injected service is not equal to registered service")
+			}
+
+			if !equal(services.B, defaultServices.B) {
+				t.Errorf("injected service is not equal to default service")
+			}
+
+			if !equal(services.C, defaultServices.C) {
+				t.Errorf("injected service is not equal to default service")
+			}
+		})
+
 		// test retriving services
 		t.Run("panics", func(t *testing.T) {
 			defer func() {
