@@ -94,7 +94,6 @@ func (c Dic) Inject(servicePointer any) error {
 			service.wraps(c, service.additional.(SingletonAdditional).Service)
 		}
 		existing = service.additional.(SingletonAdditional).Service
-		service.wraps(c, serviceValue)
 	case scoped:
 		additional := service.additional.(ScopedAdditional)
 		scope, ok := c.c.scopes[additional.Scope]
