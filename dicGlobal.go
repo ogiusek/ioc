@@ -98,6 +98,12 @@ func Get[T any](c Dic) T {
 // Note: If T is not a struct type, or if injection fails, this function may panic.
 func TryGetServices[T any](c Dic) (T, error) {
 	var res T
+	t := reflect.TypeFor[T]()
+	if t.Kind() == reflect.Pointer {
+		reflect.ValueOf(&res).Elem().Set(reflect.New(t.Elem()))
+		err := c.InjectServices(res)
+		return res, err
+	}
 	err := c.InjectServices(&res)
 	return res, err
 }
