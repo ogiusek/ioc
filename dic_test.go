@@ -523,3 +523,20 @@ func TestCircularDependencyDetection(t *testing.T) {
 		t.Errorf("container should panic on circular dependency detenction")
 	})
 }
+
+func TestCircularDependencyDetectionSafety(t *testing.T) {
+	b := ioc.NewBuilder()
+
+	type ServiceA struct{ Val int }
+	type ServiceB struct{ Val int }
+
+	ioc.RegisterSingleton(b, func(c ioc.Dic) ServiceA { return ServiceA{} })
+	ioc.RegisterSingleton(b, func(c ioc.Dic) ServiceB { return ServiceB{} })
+
+	ioc.WrapService(b, func(c ioc.Dic, s ServiceA) { ioc.Get[ServiceB](c) })
+	ioc.WrapService(b, func(c ioc.Dic, s ServiceB) { ioc.Get[ServiceA](c) })
+
+	c := b.Build()
+	ioc.Get[ServiceA](c)
+	ioc.Get[ServiceB](c)
+}

@@ -64,6 +64,7 @@ func TryGet[T any](c Dic) (T, error) {
 		}
 	case transient:
 		res = service.creator(c)
+		service.wraps(c, res)
 	default:
 		panic("requested service has invalid lifetime")
 	}
