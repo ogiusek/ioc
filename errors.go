@@ -15,4 +15,6 @@ var (
 
 	ErrCircularDependency error = errors.New("circular dependency")
 	ErrMissingDependency  error = errors.New("missing dependency")
+
+	ErrNoServiceToInject error = errors.New("circular dependency")
 )

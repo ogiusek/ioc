@@ -18,7 +18,7 @@ func BenchmarkGetTransient(b *testing.B) {
 		}).Build()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ioc.Get[int](c)
 	}
 }
@@ -33,7 +33,7 @@ func BenchmarkGetScoped(b *testing.B) {
 	s := c.Scope(scope)
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ioc.Get[int](s)
 	}
 }
@@ -47,7 +47,7 @@ func BenchmarkScopeCreation(b *testing.B) {
 	c := builder.Build()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		c.Scope(scope)
 	}
 }
@@ -60,7 +60,7 @@ func BenchmarkInjectSingleton(b *testing.B) {
 		}).Build()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = ioc.Get[int](c)
 	}
 }
@@ -73,7 +73,7 @@ func BenchmarkGetSingleton(b *testing.B) {
 		}).Build()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ioc.Get[int](c)
 	}
 }
@@ -88,7 +88,7 @@ func BenchmarkGetSingletonServices(b *testing.B) {
 		}).Build()
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		ioc.GetServices[Services](c)
 	}
 }
@@ -100,7 +100,7 @@ func BenchmarkMapForComparison(b *testing.B) {
 	}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		_ = testedMap[key]
 	}
 }
@@ -113,7 +113,7 @@ func BenchmarkMapWithMutexForComparison(b *testing.B) {
 	mutex := &sync.Mutex{}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		mutex.Lock()
 		_ = testedMap[key]
 		mutex.Unlock()
@@ -127,7 +127,7 @@ func BenchmarkMapPtrWithMutexForComparison(b *testing.B) {
 	mutex := &sync.Mutex{}
 
 	b.ResetTimer()
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		mutex.Lock()
 		_ = (*testedMap)[key]
 		mutex.Unlock()
@@ -137,7 +137,7 @@ func BenchmarkMapPtrWithMutexForComparison(b *testing.B) {
 func BenchmarkLocksetLockAndUnlock(b *testing.B) {
 	m := lockset.New()
 	k := "aa"
-	for i := 0; i < b.N; i++ {
+	for b.Loop() {
 		if ok := m.TryLock(k); !ok {
 			panic("D;")
 		}

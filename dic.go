@@ -3,6 +3,7 @@ package ioc
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"reflect"
 	"sync"
 
@@ -41,9 +42,7 @@ func (c Dic) TryScope(scope ScopeID) (Dic, error) {
 			scopes:               map[ScopeID]map[serviceID]any{},
 		},
 	}
-	for copiedScope, scopeServices := range c.c.scopes {
-		s.c.scopes[copiedScope] = scopeServices
-	}
+	maps.Copy(s.c.scopes, c.c.scopes)
 	s.c.scopes[scope] = map[serviceID]any{}
 	return s, nil
 }
@@ -174,7 +173,9 @@ func (c Dic) InjectServices(services any) error {
 	serviceType := serviceElem.Type()
 	fields := serviceType.NumField()
 
-	for i := 0; i < fields; i++ {
+	injected := false
+
+	for i := range fields {
 		field := serviceType.Field(i)
 		if field.Tag.Get("inject") != "1" {
 			continue
@@ -182,11 +183,21 @@ func (c Dic) InjectServices(services any) error {
 
 		fieldPointer := serviceElem.Field(i).Addr().Interface()
 		if err := c.Inject(fieldPointer); err == nil {
+			injected = true
 			continue
 		}
 		if err := c.InjectServices(fieldPointer); err != nil {
-			return err
+			return errors.Join(
+				ErrServiceIsntRegistered,
+				fmt.Errorf("service %v isn't registered", serviceElem.String()),
+			)
 		}
+	}
+
+	if !injected {
+		return errors.Join(
+			ErrNoServiceToInject,
+		)
 	}
 
 	return nil
