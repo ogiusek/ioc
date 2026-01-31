@@ -2,6 +2,7 @@ package ioc_test
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"reflect"
 	"runtime/debug"
@@ -87,7 +88,7 @@ func RunContainerTestsForType[Service any](
 	equal func(a, b Service) bool,
 ) {
 	if equal(serviceA, serviceB) {
-		el := reflect.TypeOf(&serviceA).Elem()
+		el := reflect.TypeFor[*Service]().Elem()
 		t.Errorf("Invalid test arguments for %s", el)
 	}
 
@@ -373,11 +374,11 @@ func RunContainerTestsForType[Service any](
 			}
 			c := b.Build()
 
-			for i := 0; i < 10; i++ {
+			for range 10 {
 				test(c)
 			}
 
-			for i := 0; i < 10; i++ {
+			for range 10 {
 				test(c)
 			}
 		})
@@ -420,7 +421,7 @@ func RunContainerTestsForType[Service any](
 
 			c := b.Build()
 
-			for i := 0; i < 10; i++ {
+			for i := range 10 {
 				if i%2 == 0 {
 					c := c.Scope(scope)
 					expectA(c)
@@ -467,7 +468,7 @@ func RunContainerTestsForType[Service any](
 				}
 			}
 
-			for i := 0; i < 10; i++ {
+			for i := range 10 {
 				if i%2 == 0 {
 					expectA(c)
 				} else {
@@ -475,7 +476,7 @@ func RunContainerTestsForType[Service any](
 				}
 			}
 
-			for i := 0; i < 10; i++ {
+			for range 10 {
 				c := c.Scope(scope)
 				expectA(c)
 				expectB(c)
@@ -503,6 +504,25 @@ func TestGettingServices(t *testing.T) {
 	if services.value != val {
 		t.Errorf("injected value is not equal to expected")
 	}
+}
+
+func TestInjectServicesError(t *testing.T) {
+	type Service struct{}
+	type Services struct {
+		Service `inject:"1"`
+	}
+
+	c := ioc.NewBuilder().Build()
+	defer func() {
+		r := recover()
+		if r != nil {
+			afterPanic()
+		}
+		if r == nil || errors.Is(errors.New(r.(string)), ioc.ErrServiceIsntRegistered) {
+			t.Errorf("expected InjectServices to panic when service do not exist and didn't expect %v", r)
+		}
+	}()
+	ioc.GetServices[*Services](c)
 }
 
 func TestDoubleInjection(t *testing.T) {
