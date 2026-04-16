@@ -5,59 +5,15 @@ import (
 	"testing"
 
 	"github.com/ogiusek/ioc/v2"
-	"github.com/optimus-hft/lockset/v2"
 )
 
 // go test -bench=.
 
-func BenchmarkGetTransient(b *testing.B) {
-	initial := 1
-	c := ioc.NewBuilder().
-		Wrap(func(b ioc.Builder) ioc.Builder {
-			return ioc.RegisterTransient(b, func(c ioc.Dic) int { return initial })
-		}).Build()
-
-	b.ResetTimer()
-	for b.Loop() {
-		ioc.Get[int](c)
-	}
-}
-
-func BenchmarkGetScoped(b *testing.B) {
-	scope := ioc.ScopeID("")
-	initial := 1
-	builder := ioc.NewBuilder()
-	ioc.RegisterScoped(builder, scope, func(c ioc.Dic) int { return initial })
-	builder.RegisterScope(scope)
-	c := builder.Build()
-	s := c.Scope(scope)
-
-	b.ResetTimer()
-	for b.Loop() {
-		ioc.Get[int](s)
-	}
-}
-
-func BenchmarkScopeCreation(b *testing.B) {
-	scope := ioc.ScopeID("")
-	initial := 1
-	builder := ioc.NewBuilder()
-	ioc.RegisterScoped(builder, scope, func(d ioc.Dic) int { return initial })
-	builder.RegisterScope(scope)
-	c := builder.Build()
-
-	b.ResetTimer()
-	for b.Loop() {
-		c.Scope(scope)
-	}
-}
-
 func BenchmarkInjectSingleton(b *testing.B) {
 	initial := 1
-	c := ioc.NewBuilder().
-		Wrap(func(b ioc.Builder) ioc.Builder {
-			return ioc.RegisterSingleton(b, func(d ioc.Dic) int { return initial })
-		}).Build()
+	builder := ioc.NewBuilder()
+	ioc.Register(builder, func(d ioc.Dic) int { return initial })
+	c := builder.Build()
 
 	b.ResetTimer()
 	for b.Loop() {
@@ -67,10 +23,9 @@ func BenchmarkInjectSingleton(b *testing.B) {
 
 func BenchmarkGetSingleton(b *testing.B) {
 	initial := 1
-	c := ioc.NewBuilder().
-		Wrap(func(b ioc.Builder) ioc.Builder {
-			return ioc.RegisterSingleton(b, func(d ioc.Dic) int { return initial })
-		}).Build()
+	builder := ioc.NewBuilder()
+	ioc.Register(builder, func(d ioc.Dic) int { return initial })
+	c := builder.Build()
 
 	b.ResetTimer()
 	for b.Loop() {
@@ -82,10 +37,9 @@ func BenchmarkGetSingletonServices(b *testing.B) {
 	type Services struct {
 		Service int `inject:"1"`
 	}
-	c := ioc.NewBuilder().
-		Wrap(func(b ioc.Builder) ioc.Builder {
-			return ioc.RegisterSingleton(b, func(c ioc.Dic) int { return 7 })
-		}).Build()
+	builder := ioc.NewBuilder()
+	ioc.Register(builder, func(c ioc.Dic) int { return 7 })
+	c := builder.Build()
 
 	b.ResetTimer()
 	for b.Loop() {
@@ -131,16 +85,5 @@ func BenchmarkMapPtrWithMutexForComparison(b *testing.B) {
 		mutex.Lock()
 		_ = (*testedMap)[key]
 		mutex.Unlock()
-	}
-}
-
-func BenchmarkLocksetLockAndUnlock(b *testing.B) {
-	m := lockset.New()
-	k := "aa"
-	for b.Loop() {
-		if ok := m.TryLock(k); !ok {
-			panic("D;")
-		}
-		m.Unlock(k)
 	}
 }

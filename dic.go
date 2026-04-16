@@ -3,19 +3,16 @@ package ioc
 import (
 	"errors"
 	"fmt"
-	"maps"
 	"reflect"
 	"sync"
-
-	"github.com/optimus-hft/lockset/v2"
 )
 
 type dic struct {
 	serviceRegisterMutex *sync.Mutex
 	services             map[serviceID]Service
 
-	createLockset *lockset.Set
-	scopes        map[ScopeID]map[serviceID]any
+	creationMapMutex sync.Mutex
+	creationMap      map[serviceID]struct{}
 }
 
 type Dic struct {
@@ -26,33 +23,18 @@ func serviceKey(serviceType reflect.Type) serviceID {
 	return reflect.Zero(reflect.PointerTo(serviceType)).Interface()
 }
 
-// can return ErrScopeDoesNotExist
-func (c Dic) TryScope(scope ScopeID) (Dic, error) {
-	if _, ok := c.c.scopes[scope]; !ok {
-		return Dic{}, errors.Join(
-			ErrScopeDoesNotExist,
-			fmt.Errorf("scope %s", scope),
-		)
-	}
-	s := Dic{
-		c: &dic{
-			serviceRegisterMutex: c.c.serviceRegisterMutex,
-			services:             c.c.services,
-			createLockset:        lockset.New(),
-			scopes:               map[ScopeID]map[serviceID]any{},
-		},
-	}
-	maps.Copy(s.c.scopes, c.c.scopes)
-	s.c.scopes[scope] = map[serviceID]any{}
-	return s, nil
-}
+func (c Dic) tryLock(id serviceID) bool {
+	c.c.creationMapMutex.Lock()
+	defer c.c.creationMapMutex.Unlock()
 
-func (c Dic) Scope(scope ScopeID) Dic {
-	s, err := c.TryScope(scope)
-	if err != nil {
-		panic(fmt.Sprintf("%s\n", err.Error()))
-	}
-	return s
+	_, ok := c.c.creationMap[id]
+	c.c.creationMap[id] = struct{}{}
+	return !ok
+}
+func (c Dic) unlock(id serviceID) {
+	c.c.creationMapMutex.Lock()
+	defer c.c.creationMapMutex.Unlock()
+	delete(c.c.creationMap, id)
 }
 
 // Inject replaces servicePointer value with a service from container.
@@ -77,60 +59,28 @@ func (c Dic) Inject(servicePointer any) error {
 		)
 	}
 
-	var existing any
-
-	switch service.lifetime {
-	case singleton:
-		if service.additional == nil {
-			if ok := c.c.createLockset.TryLock(key); !ok {
-				panic("detected circular dependency")
-			}
-			service.additional = SingletonAdditional{
-				Service: service.creator(c),
-			}
-			c.c.services[key] = service
-			c.c.createLockset.Unlock(key)
-			service.wraps(c, service.additional.(SingletonAdditional).Service)
+	instance := *service.instance
+	if instance == nil {
+		if ok := c.tryLock(key); !ok {
+			panic("detected circular dependency")
 		}
-		existing = service.additional.(SingletonAdditional).Service
-	case scoped:
-		additional := service.additional.(ScopedAdditional)
-		scope, ok := c.c.scopes[additional.Scope]
-		if !ok {
-			return ErrScopeIsNotInitialized
-		}
-		existing, ok = scope[key]
-		if !ok {
-			if ok := c.c.createLockset.TryLock(key); !ok {
-				panic("detected circular dependency")
-			}
-			existing, ok = c.c.scopes[key]
-			if !ok {
-				existing = service.creator(c)
-				scope[key] = existing
-				c.c.createLockset.Unlock(key)
-				service.wraps(c, existing)
-			} else {
-				c.c.createLockset.Unlock(key)
-			}
-		}
-	case transient:
-		existing = service.creator(c)
-		service.wraps(c, existing)
-	default:
-		panic("requested service has invalid lifetime")
+		instance = service.creator(c)
+		*service.instance = instance
+		c.c.services[key] = service
+		c.unlock(key)
+		service.wraps(c, instance)
 	}
 
 	var newServiceValue reflect.Value
 	switch serviceElement.Type().Kind() {
 	case reflect.Interface:
-		if existing == nil {
-			newServiceValue = reflect.ValueOf(&existing).Elem()
+		if instance == nil {
+			newServiceValue = reflect.ValueOf(&instance).Elem()
 		} else {
-			newServiceValue = reflect.ValueOf(existing)
+			newServiceValue = reflect.ValueOf(instance)
 		}
 	default:
-		newServiceValue = reflect.ValueOf(existing)
+		newServiceValue = reflect.ValueOf(instance)
 	}
 
 	serviceElement.Set(newServiceValue)
@@ -189,14 +139,14 @@ func (c Dic) InjectServices(services any) error {
 		if err := c.InjectServices(fieldPointer); err != nil {
 			return errors.Join(
 				ErrServiceIsntRegistered,
-				fmt.Errorf("service %v isn't registered", serviceElem.String()),
+				fmt.Errorf("service %v isn't registered", field.Type.String()),
 			)
 		}
 	}
 
 	if !injected {
 		return errors.Join(
-			ErrNoServiceToInject,
+			ErrMissingDependency,
 		)
 	}
 
