@@ -94,6 +94,22 @@ func Register[Service any](b Builder, creator func(c Dic) Service) {
 	}
 	service := newSingleton(func(c Dic) any { return creator(c) })
 	b.b.services[key] = service
+
+	lazyKey := typeKey[Lazy[Service]]()
+	lazyService := newSingleton(func(c Dic) any {
+		var service Service
+		ok := false
+		var lazy Lazy[Service] = func() Service {
+			if ok {
+				return service
+			}
+			service = Get[Service](c)
+			ok = true
+			return service
+		}
+		return lazy
+	})
+	b.b.services[lazyKey] = lazyService
 }
 
 // wraps with the smallest id are applied first
