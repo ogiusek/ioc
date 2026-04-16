@@ -10,8 +10,9 @@ import (
 type serviceID any
 
 type builder struct {
-	wraps    map[serviceID][]ctorWrap
-	services map[serviceID]Service
+	wraps           map[serviceID][]ctorWrap
+	services        map[serviceID]Service
+	servicesOrdered []serviceID
 }
 
 type Builder struct {
@@ -72,7 +73,8 @@ func (b Builder) Build() Dic {
 			creationMap:      make(map[serviceID]struct{}),
 		},
 	}
-	for key, service := range b.b.services {
+	for _, key := range b.b.servicesOrdered {
+		service := b.b.services[key]
 		if *service.instance != nil {
 			continue
 		}
@@ -110,6 +112,8 @@ func Register[Service any](b Builder, creator func(c Dic) Service) {
 		return lazy
 	})
 	b.b.services[lazyKey] = lazyService
+
+	b.b.servicesOrdered = append(b.b.servicesOrdered, key, lazyKey)
 }
 
 // wraps with the smallest id are applied first

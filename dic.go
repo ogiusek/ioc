@@ -62,7 +62,10 @@ func (c Dic) Inject(servicePointer any) error {
 	instance := *service.instance
 	if instance == nil {
 		if ok := c.tryLock(key); !ok {
-			panic("detected circular dependency")
+			panic(errors.Join(
+				ErrCircularDependency,
+				fmt.Errorf("Service of type '%s' is requested before being registered", serviceElement.Type().String()),
+			))
 		}
 		instance = service.creator(c)
 		*service.instance = instance
