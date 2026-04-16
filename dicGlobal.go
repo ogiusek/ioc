@@ -24,52 +24,23 @@ func TryGet[T any](c Dic) (T, error) {
 		)
 	}
 
-	var res any
-
-	switch service.lifetime {
-	case singleton:
-		if service.additional == nil {
-			if ok := c.c.createLockset.TryLock(key); !ok {
-				panic("detected circular dependency")
-			}
-			service.additional = SingletonAdditional{
-				Service: service.creator(c),
-			}
-			c.c.services[key] = service
-			c.c.createLockset.Unlock(key)
-			service.wraps(c, service.additional.(SingletonAdditional).Service)
-		}
-		res = service.additional.(SingletonAdditional).Service
-	case scoped:
-		additional := service.additional.(ScopedAdditional)
-		scope, ok := c.c.scopes[additional.Scope]
-		if !ok {
-			var t T
-			return t, ErrScopeIsNotInitialized
-		}
-		res, ok = scope[key]
-		if !ok {
-			if ok := c.c.createLockset.TryLock(key); !ok {
-				panic("detected circular dependency")
-			}
-			res, ok = c.c.scopes[key]
-			if !ok {
-				res = service.creator(c)
-				scope[key] = res
-				c.c.createLockset.Unlock(key)
-				service.wraps(c, res)
-			} else {
-				c.c.createLockset.Unlock(key)
-			}
-		}
-	case transient:
-		res = service.creator(c)
-		service.wraps(c, res)
-	default:
-		panic("requested service has invalid lifetime")
+	if instance := *service.instance; instance != nil {
+		return instance.(T), nil
 	}
+	if ok := c.tryLock(key); !ok {
+		panic(ErrCircularDependency.Error())
+	}
+	if instance := *service.instance; instance != nil {
+		c.unlock(key)
+		return instance.(T), nil
+	}
+	instance := service.creator(c)
+	*service.instance = instance
+	c.c.services[key] = service
+	c.unlock(key)
+	service.wraps(c, instance)
 
-	return res.(T), nil
+	return instance.(T), nil
 }
 
 // Returns service instance of type T.
