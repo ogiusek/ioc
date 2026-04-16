@@ -28,7 +28,10 @@ func TryGet[T any](c Dic) (T, error) {
 		return instance.(T), nil
 	}
 	if ok := c.tryLock(key); !ok {
-		panic(ErrCircularDependency.Error())
+		panic(errors.Join(
+			ErrCircularDependency,
+			fmt.Errorf("Service of type '%s' is requested before being registered", reflect.TypeFor[T]().String()),
+		))
 	}
 	if instance := *service.instance; instance != nil {
 		c.unlock(key)
