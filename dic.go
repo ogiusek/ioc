@@ -149,7 +149,8 @@ func (c Dic) InjectServices(services any) error {
 
 	if !injected {
 		return errors.Join(
-			ErrMissingDependency,
+			ErrServiceIsntRegistered,
+			fmt.Errorf("service %v isn't registered", serviceType.String()),
 		)
 	}
 
