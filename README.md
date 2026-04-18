@@ -5,14 +5,15 @@ designed to minimize boilerplate and maximize performance, scalability and devel
 It provides a straightforward way to manage and inject dependencies into your go applications,
 promoting loosely coupled and testable code.
 
-This package is thread safe.
+## thread safety
+This package is thread safe because it uses mutexes but there should be no scenario where this is needed.\
+On startup services should be deterministic and initialized in order and during runtime di container isn't used because everything is already wired.
 
 ## opinionated choices
 ### lifetimes
 Only service lifetime is singleton.\
 DI container should be a dependency manager.\
-It's responsible for managing services with their dependencies.\
-Scope or transient aren't services. They're data.
+It's responsible for managing services with their dependencies.
 
 #### Transient services
 Transient is just a factory not a separate lifetime.\
@@ -27,6 +28,8 @@ And add other services subscribing to these events and storing all data related 
 
 ### eager loading
 All services are eagerly loaded to ensure runtime safety.
+If container isn't wired properly application panics.
+Its idiomatic because it follows "fail fast" instead of starting with broken service
 
 ### reflection
 We use reflection instead of compile time for syntax sugar and developer velocity.
@@ -34,6 +37,21 @@ We use reflection instead of compile time for syntax sugar and developer velocit
 ### no wraping order
 If order is necessary it should be in service.\
 If we pre-bake wrapping order into every service even where order doesn't matter then interface becomes convoluted.
+
+## benchmarks
+
+```sh
+$ go test . -bench=.
+goos: linux
+goarch: amd64
+pkg: github.com/ogiusek/ioc/v2
+cpu: Intel(R) Core(TM) i5-8350U CPU @ 1.70GHz
+BenchmarkNewContainerWith3Services-8              382906              3043 ns/op
+BenchmarkGet-8                                  58340506                20.61 ns/op
+BenchmarkGetServices-8                           5002544               237.3 ns/op
+BenchmarkGetInMapWithMutexForComparison-8       54038545                21.72 ns/op
+PASS
+```
 
 ## documentation
 ### what is package
@@ -83,7 +101,6 @@ func _(b ioc.Builder) {
 	})
 }
 ```
-
 
 #### wrapping
 ```go
@@ -137,7 +154,7 @@ func _(c ioc.Dic) NewService {
 }
 ```
 
-#### Other methods
+#### other retrieval methods
 These can be used for either more performant access (`Get` is most important) or
 for more granural access but `GetServices` is on the biggest level of abstraction and
 reduces most boilerplate with least costs.
@@ -147,6 +164,15 @@ Only cost is startup time, but it doesn't affect runtime performance.
 - `Get` retrieves specific service. Panics if service isn't registered
 - `TryGet` retrieves specific service. Returns error if service isn't registered
 - `Inject` takes pointer to a service and fills it with a service. When service isn't registered returns error
+
+### transients
+There is a built in service factory.
+```go
+// Transient is just a factory which can be registered
+type Transient[Service any] func() Service
+```
+
+To register a transient you'll need to register `Transient[Service]`
 
 ## Contributing
 Contact us we are open for suggestions

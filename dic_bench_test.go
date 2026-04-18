@@ -7,23 +7,18 @@ import (
 	"github.com/ogiusek/ioc/v2"
 )
 
-// go test -bench=.
-
-func BenchmarkInjectSingleton(b *testing.B) {
-	initial := 1
-	c := ioc.NewContainer(
-		func(b ioc.Builder) {
-			ioc.Register(b, func(d ioc.Dic) int { return initial })
-		},
-	)
-
-	b.ResetTimer()
+func BenchmarkNewContainerWith3Services(b *testing.B) {
+	pkg := ioc.NewPkg(func(b ioc.Builder) {
+		ioc.Register(b, func(c ioc.Dic) int16 { return 0 })
+		ioc.Register(b, func(c ioc.Dic) int32 { return 0 })
+		ioc.Register(b, func(c ioc.Dic) int64 { return 0 })
+	})
 	for b.Loop() {
-		_ = ioc.Get[int](c)
+		ioc.NewContainer(pkg)
 	}
 }
 
-func BenchmarkGetSingleton(b *testing.B) {
+func BenchmarkGet(b *testing.B) {
 	initial := 1
 	c := ioc.NewContainer(
 		func(b ioc.Builder) {
@@ -37,7 +32,7 @@ func BenchmarkGetSingleton(b *testing.B) {
 	}
 }
 
-func BenchmarkGetSingletonServices(b *testing.B) {
+func BenchmarkGetServices(b *testing.B) {
 	type Services struct {
 		Service int `inject:"1"`
 	}
@@ -53,19 +48,7 @@ func BenchmarkGetSingletonServices(b *testing.B) {
 	}
 }
 
-func BenchmarkMapForComparison(b *testing.B) {
-	key := "item"
-	testedMap := map[string]int{
-		key: 1,
-	}
-
-	b.ResetTimer()
-	for b.Loop() {
-		_ = testedMap[key]
-	}
-}
-
-func BenchmarkMapWithMutexForComparison(b *testing.B) {
+func BenchmarkGetInMapWithMutexForComparison(b *testing.B) {
 	key := "item"
 	testedMap := map[string]int{
 		key: 1,
@@ -76,20 +59,6 @@ func BenchmarkMapWithMutexForComparison(b *testing.B) {
 	for b.Loop() {
 		mutex.Lock()
 		_ = testedMap[key]
-		mutex.Unlock()
-	}
-}
-func BenchmarkMapPtrWithMutexForComparison(b *testing.B) {
-	key := "item"
-	testedMap := &map[string]int{
-		key: 1,
-	}
-	mutex := &sync.Mutex{}
-
-	b.ResetTimer()
-	for b.Loop() {
-		mutex.Lock()
-		_ = (*testedMap)[key]
 		mutex.Unlock()
 	}
 }
