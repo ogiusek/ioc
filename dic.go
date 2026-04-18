@@ -145,6 +145,7 @@ func (c Dic) InjectServices(services any) error {
 				fmt.Errorf("service %v isn't registered", field.Type.String()),
 			)
 		}
+		injected = true
 	}
 
 	if !injected {
