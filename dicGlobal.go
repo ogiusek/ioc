@@ -20,7 +20,7 @@ func TryGet[T any](c Dic) (T, error) {
 		var t T
 		return t, errors.Join(
 			ErrServiceIsntRegistered,
-			fmt.Errorf("Service of type '%s' is not registered", reflect.TypeFor[T]().String()),
+			fmt.Errorf("service of type '%s' is not registered", reflect.TypeFor[T]().String()),
 		)
 	}
 
@@ -30,7 +30,7 @@ func TryGet[T any](c Dic) (T, error) {
 	if ok := c.tryLock(key); !ok {
 		panic(errors.Join(
 			ErrCircularDependency,
-			fmt.Errorf("Service of type '%s' is requested before being registered", reflect.TypeFor[T]().String()),
+			fmt.Errorf("service of type '%s' is requested before being registered", reflect.TypeFor[T]().String()),
 		))
 	}
 	if instance := *service.instance; instance != nil {
@@ -59,13 +59,13 @@ func Get[T any](c Dic) T {
 // GetServices creates a new instance of type T, injects dependencies into it, and returns it.
 //
 // The type parameter T must be a struct type. All fields of the struct that have the tag
-// `inject:"1"` will be automatically injected with corresponding instances from the DI container.
+// `inject:""` will be automatically injected with corresponding instances from the DI container.
 //
 // Example:
 //
 //	type MyServices struct {
-//	    Logger Logger `inject:"1"`
-//	    Repo   Repo   `inject:"1"`
+//	    Logger Logger `inject:""`
+//	    Repo   Repo   `inject:""`
 //	}
 //	svc := GetServices[MyServices](dic)
 //
@@ -82,6 +82,11 @@ func TryGetServices[T any](c Dic) (T, error) {
 	return res, err
 }
 
+// GetServices creates a new instance of type T where T is struct or pointer to a struct and
+// injects services into every public property with inject struct tag.
+// This function panics when injection fails.
+// This is an intentional choice, its go idiomatic because its on startup.
+// It ensures application consistency and there is no proper way to handle invalid application wiring.
 func GetServices[T any](c Dic) T {
 	res, err := TryGetServices[T](c)
 	if err != nil {

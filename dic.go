@@ -9,7 +9,7 @@ import (
 
 type dic struct {
 	serviceRegisterMutex *sync.Mutex
-	services             map[serviceID]Service
+	services             map[serviceID]service
 
 	creationMapMutex sync.Mutex
 	creationMap      map[serviceID]struct{}
@@ -55,7 +55,7 @@ func (c Dic) Inject(servicePointer any) error {
 	if !ok {
 		return errors.Join(
 			ErrServiceIsntRegistered,
-			fmt.Errorf("Service of type '%s' is not registered", serviceElement.Type().String()),
+			fmt.Errorf("service of type '%s' is not registered", serviceElement.Type().String()),
 		)
 	}
 
@@ -64,7 +64,7 @@ func (c Dic) Inject(servicePointer any) error {
 		if ok := c.tryLock(key); !ok {
 			panic(errors.Join(
 				ErrCircularDependency,
-				fmt.Errorf("Service of type '%s' is requested before being registered", serviceElement.Type().String()),
+				fmt.Errorf("service of type '%s' is requested before being registered", serviceElement.Type().String()),
 			))
 		}
 		instance = service.creator(c)
@@ -130,7 +130,7 @@ func (c Dic) InjectServices(services any) error {
 
 	for i := range fields {
 		field := serviceType.Field(i)
-		if field.Tag.Get("inject") != "1" {
+		if _, ok := field.Tag.Lookup("inject"); !ok {
 			continue
 		}
 
