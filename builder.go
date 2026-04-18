@@ -2,7 +2,6 @@ package ioc
 
 import (
 	"log"
-	"maps"
 	"reflect"
 	"sync"
 )
@@ -11,7 +10,7 @@ type serviceID any
 
 type builder struct {
 	wraps           map[serviceID][]ctorWrap
-	services        map[serviceID]Service
+	services        map[serviceID]service
 	servicesOrdered []serviceID
 }
 
@@ -19,32 +18,26 @@ type Builder struct {
 	b *builder
 }
 
-func NewBuilder() Builder {
-	return Builder{
+func NewContainer(pkgs ...Pkg) Dic {
+	b := Builder{
 		b: &builder{
 			wraps:    map[serviceID][]ctorWrap{},
-			services: map[serviceID]Service{},
+			services: map[serviceID]service{},
 		},
 	}
+	registered := map[uintptr]struct{}{}
+	for _, pkg := range pkgs {
+		k := reflect.ValueOf(pkg).Pointer()
+		if _, ok := registered[k]; ok {
+			continue
+		}
+		registered[k] = struct{}{}
+		pkg(b)
+	}
+	return b.build()
 }
 
-func (b Builder) Clone() Builder {
-	clonedB := Builder{
-		b: &builder{
-			wraps:    make(map[serviceID][]ctorWrap, len(b.b.wraps)),
-			services: nil,
-		},
-	}
-	for key, val := range b.b.wraps {
-		wraps := make([]ctorWrap, len(val))
-		copy(wraps, val)
-		clonedB.b.wraps[key] = wraps
-	}
-	clonedB.b.services = maps.Clone(b.b.services)
-	return clonedB
-}
-
-func (b Builder) Build() Dic {
+func (b Builder) build() Dic {
 	services := b.b.services
 	for key, service := range services {
 		wraps, ok := b.b.wraps[key]
@@ -88,17 +81,23 @@ func (b Builder) Build() Dic {
 	return c
 }
 
+// registers service and its lazy getter with singleton lifetimes
 func Register[Service any](b Builder, creator func(c Dic) Service) {
 	key := typeKey[Service]()
 	if _, ok := b.b.services[key]; ok {
 		var t Service
 		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
 	}
-	service := newSingleton(func(c Dic) any { return creator(c) })
-	b.b.services[key] = service
 
 	lazyKey := typeKey[Lazy[Service]]()
-	lazyService := newSingleton(func(c Dic) any {
+	if _, ok := b.b.services[lazyKey]; ok {
+		var t Service
+		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
+	}
+
+	b.b.services[key] = newService(func(c Dic) any { return creator(c) })
+
+	b.b.services[lazyKey] = newService(func(c Dic) any {
 		var service Service
 		ok := false
 		var lazy Lazy[Service] = func() Service {
@@ -111,13 +110,12 @@ func Register[Service any](b Builder, creator func(c Dic) Service) {
 		}
 		return lazy
 	})
-	b.b.services[lazyKey] = lazyService
 
 	b.b.servicesOrdered = append(b.b.servicesOrdered, key, lazyKey)
 }
 
-// wraps with the smallest id are applied first
-// wraps with the same order are applied randomly
+// wraps are applied in addition order after service initialization.
+// if there is circular dependency betewen `ServiceA` wrapper and `ServiceB` wrapper one is going to be applied first
 func Wrap[Service any](b Builder, wrap func(c Dic, s Service)) {
 	key := typeKey[Service]()
 	wraps := newCtorWrap(wrap)

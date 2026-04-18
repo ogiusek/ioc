@@ -93,7 +93,7 @@ func RunContainerTestsForType[Service any](
 	}
 
 	// this method should be called right after initialization of the container
-	testBeforeRegisteredService := func(b ioc.Builder) {
+	testEmptyContainer := func(pkgs ...ioc.Pkg) {
 		// test retriving not registered service
 		t.Run("panics", func(t *testing.T) {
 			defer func() {
@@ -103,7 +103,7 @@ func RunContainerTestsForType[Service any](
 					t.Errorf("container should panic when retriving not existing service")
 				}
 			}()
-			_ = ioc.Get[Service](b.Build())
+			_ = ioc.Get[Service](ioc.NewContainer(pkgs...))
 		})
 
 		// test injecting not registered service
@@ -115,12 +115,12 @@ func RunContainerTestsForType[Service any](
 					t.Errorf("container shouldn't panic when injecting not existing service: %s\n%s", r, debug.Stack())
 				}
 			}()
-			_ = ioc.Get[Service](b.Build())
+			_ = ioc.Get[Service](ioc.NewContainer(pkgs...))
 		})
 	}
 
 	// in this container should be registered service A of any lifetime
-	testsOnRegisteredService := func(b ioc.Builder) {
+	testConteinerWithPkg := func(pkgs ...ioc.Pkg) {
 		// test retriving service
 		t.Run("panics", func(t *testing.T) {
 			defer func() {
@@ -129,9 +129,7 @@ func RunContainerTestsForType[Service any](
 					t.Errorf("container panics when retriving registered service: %s", r)
 				}
 			}()
-			b := b.Clone()
-
-			c := b.Build()
+			c := ioc.NewContainer(pkgs...)
 			s := ioc.Get[Service](c)
 
 			if !equal(s, serviceA) {
@@ -147,9 +145,8 @@ func RunContainerTestsForType[Service any](
 					t.Errorf("container panics when injecting registered service")
 				}
 			}()
-			b := b.Clone()
 
-			c := b.Build()
+			c := ioc.NewContainer(pkgs...)
 			service := ioc.Get[Service](c)
 
 			if !equal(service, serviceA) {
@@ -166,10 +163,13 @@ func RunContainerTestsForType[Service any](
 				}
 			}()
 
-			b := b.Clone()
 			type RequiringService struct{ Service Service }
-			ioc.Register(b, func(c ioc.Dic) RequiringService { return RequiringService{Service: serviceA} })
-			c := b.Build()
+			c := ioc.NewContainer(append(
+				pkgs,
+				func(b ioc.Builder) {
+					ioc.Register(b, func(c ioc.Dic) RequiringService { return RequiringService{Service: serviceA} })
+				},
+			)...)
 			service := ioc.Get[RequiringService](c)
 
 			if !equal(service.Service, serviceA) {
@@ -186,14 +186,11 @@ func RunContainerTestsForType[Service any](
 				}
 			}()
 
-			b := b.Clone()
 			type Services struct {
-				A Service `inject:"1"`
-				B Service `inject:"0"`
-				C Service
+				A Service `inject:""`
+				B Service
 			}
-
-			c := b.Build()
+			c := ioc.NewContainer(pkgs...)
 			services := ioc.GetServices[Services](c)
 			var defaultServices Services
 
@@ -202,10 +199,6 @@ func RunContainerTestsForType[Service any](
 			}
 
 			if !equal(services.B, defaultServices.B) {
-				t.Errorf("injected service is not equal to default service")
-			}
-
-			if !equal(services.C, defaultServices.C) {
 				t.Errorf("injected service is not equal to default service")
 			}
 		})
@@ -218,14 +211,12 @@ func RunContainerTestsForType[Service any](
 				}
 			}()
 
-			b := b.Clone()
 			type Services struct {
-				A Service `inject:"1"`
-				B Service `inject:"0"`
-				C Service
+				A Service `inject:""`
+				B Service
 			}
 
-			c := b.Build()
+			c := ioc.NewContainer(pkgs...)
 			services := *ioc.GetServices[*Services](c)
 			var defaultServices Services
 
@@ -234,10 +225,6 @@ func RunContainerTestsForType[Service any](
 			}
 
 			if !equal(services.B, defaultServices.B) {
-				t.Errorf("injected service is not equal to default service")
-			}
-
-			if !equal(services.C, defaultServices.C) {
 				t.Errorf("injected service is not equal to default service")
 			}
 		})
@@ -251,14 +238,12 @@ func RunContainerTestsForType[Service any](
 				}
 			}()
 
-			b := b.Clone()
 			type Services struct {
-				A Service `inject:"1"`
-				B Service `inject:"0"`
-				C Service
+				A Service `inject:""`
+				B Service
 			}
 
-			c := b.Build()
+			c := ioc.NewContainer(pkgs...)
 			var defaultServices Services
 			services := ioc.GetServices[Services](c)
 
@@ -269,20 +254,18 @@ func RunContainerTestsForType[Service any](
 			if !equal(services.B, defaultServices.B) {
 				t.Errorf("retrieved service is not equal to default service")
 			}
-
-			if !equal(services.C, defaultServices.C) {
-				t.Errorf("retrieved service is not equal to default service")
-			}
 		})
 	}
 
 	// test universal behaviour (shared for every lifetime)
 	// second line is done for each container in case of some funny side effects
 	{
-		b := ioc.NewBuilder()
-		testBeforeRegisteredService(b)
-		ioc.Register(b, func(c ioc.Dic) Service { return serviceA })
-		testsOnRegisteredService(b)
+		testEmptyContainer()
+		testConteinerWithPkg(
+			func(b ioc.Builder) {
+				ioc.Register(b, func(c ioc.Dic) Service { return serviceA })
+			},
+		)
 	}
 
 	register := func(toggler *bool) Service {
@@ -293,10 +276,10 @@ func RunContainerTestsForType[Service any](
 		return serviceB
 	}
 
-	b := ioc.NewBuilder()
-	testBeforeRegisteredService(b)
 	var toggler bool
-	ioc.Register(b, func(c ioc.Dic) Service { return register(&toggler) })
+	pkg := ioc.NewPkg(func(b ioc.Builder) {
+		ioc.Register(b, func(c ioc.Dic) Service { return register(&toggler) })
+	})
 
 	// test retriving service
 	t.Run("panics", func(t *testing.T) {
@@ -314,7 +297,7 @@ func RunContainerTestsForType[Service any](
 				t.Errorf("singleton service got initialized twice")
 			}
 		}
-		c := b.Build()
+		c := ioc.NewContainer(pkg)
 
 		for range 10 {
 			test(c)
@@ -331,15 +314,14 @@ func TestGettingServices(t *testing.T) {
 		value int
 	}
 	type Services struct {
-		Service `inject:"1"`
+		Service `inject:""`
 	}
 
 	val := 7
 
-	b := ioc.NewBuilder()
-	ioc.Register(b, func(c ioc.Dic) Service { return Service{value: val} })
-
-	c := b.Build()
+	c := ioc.NewContainer(func(b ioc.Builder) {
+		ioc.Register(b, func(c ioc.Dic) Service { return Service{value: val} })
+	})
 	services := ioc.GetServices[Services](c)
 
 	if services.value != val {
@@ -350,10 +332,10 @@ func TestGettingServices(t *testing.T) {
 func TestInjectServicesError(t *testing.T) {
 	type Service struct{}
 	type Services struct {
-		Service `inject:"1"`
+		Service `inject:""`
 	}
 
-	c := ioc.NewBuilder().Build()
+	c := ioc.NewContainer()
 	defer func() {
 		r := recover()
 		if r != nil {
@@ -366,15 +348,14 @@ func TestInjectServicesError(t *testing.T) {
 	ioc.GetServices[*Services](c)
 }
 
-func TestDoubleInjection(t *testing.T) {
-	b := ioc.NewBuilder()
-
+func TestNestedService(t *testing.T) {
 	type Service struct{ Val int }
-	ioc.Register(b, func(c ioc.Dic) Service { return Service{Val: 1} })
-
 	type Wrapper struct{ Service Service }
-	ioc.Register(b, func(c ioc.Dic) Wrapper { return Wrapper{Service: ioc.Get[Service](c)} })
-	c := b.Build()
+
+	c := ioc.NewContainer(func(b ioc.Builder) {
+		ioc.Register(b, func(c ioc.Dic) Service { return Service{Val: 1} })
+		ioc.Register(b, func(c ioc.Dic) Wrapper { return Wrapper{Service: ioc.Get[Service](c)} })
+	})
 
 	wrapper := ioc.Get[Wrapper](c)
 	if wrapper.Service.Val != 1 {
@@ -383,13 +364,14 @@ func TestDoubleInjection(t *testing.T) {
 }
 
 func TestRegister(t *testing.T) {
-	b := ioc.NewBuilder()
 	type Service struct{ Val int }
-	ioc.Register(b, func(c ioc.Dic) *Service {
-		return &Service{7}
-	})
-	b.Build()
-	c := b.Build()
+	c := ioc.NewContainer(
+		func(b ioc.Builder) {
+			ioc.Register(b, func(c ioc.Dic) *Service {
+				return &Service{7}
+			})
+		},
+	)
 	service := ioc.Get[*Service](c)
 	if service.Val != 7 {
 		t.Errorf("unexpected value expected %v and got %v", 7, service.Val)
@@ -397,13 +379,13 @@ func TestRegister(t *testing.T) {
 }
 
 func TestCircularDependencyDetection(t *testing.T) {
-	b := ioc.NewBuilder()
-
 	type ServiceA struct{ Val int }
 	type ServiceB struct{ Val int }
 
-	ioc.Register(b, func(c ioc.Dic) ServiceA { return ServiceA{ioc.Get[ServiceB](c).Val} })
-	ioc.Register(b, func(c ioc.Dic) ServiceB { return ServiceB{ioc.Get[ServiceA](c).Val} })
+	pkg := ioc.NewPkg(func(b ioc.Builder) {
+		ioc.Register(b, func(c ioc.Dic) ServiceA { return ServiceA{ioc.Get[ServiceB](c).Val} })
+		ioc.Register(b, func(c ioc.Dic) ServiceB { return ServiceB{ioc.Get[ServiceA](c).Val} })
+	})
 
 	t.Run("panics", func(t *testing.T) {
 		defer func() {
@@ -411,25 +393,25 @@ func TestCircularDependencyDetection(t *testing.T) {
 				afterPanic()
 			}
 		}()
-		c := b.Build()
+		c := ioc.NewContainer(pkg)
 		ioc.Get[ServiceA](c)
 		t.Errorf("container should panic on circular dependency detenction")
 	})
 }
 
 func TestCircularDependencyDetectionSafety(t *testing.T) {
-	b := ioc.NewBuilder()
-
 	type ServiceA struct{ Val int }
 	type ServiceB struct{ Val int }
 
-	ioc.Register(b, func(c ioc.Dic) ServiceA { return ServiceA{} })
-	ioc.Register(b, func(c ioc.Dic) ServiceB { return ServiceB{} })
+	c := ioc.NewContainer(
+		func(b ioc.Builder) {
+			ioc.Register(b, func(c ioc.Dic) ServiceA { return ServiceA{} })
+			ioc.Register(b, func(c ioc.Dic) ServiceB { return ServiceB{} })
 
-	ioc.Wrap(b, func(c ioc.Dic, s ServiceA) { ioc.Get[ServiceB](c) })
-	ioc.Wrap(b, func(c ioc.Dic, s ServiceB) { ioc.Get[ServiceA](c) })
-
-	c := b.Build()
+			ioc.Wrap(b, func(c ioc.Dic, s ServiceA) { ioc.Get[ServiceB](c) })
+			ioc.Wrap(b, func(c ioc.Dic, s ServiceB) { ioc.Get[ServiceA](c) })
+		},
+	)
 	ioc.Get[ServiceA](c)
 	ioc.Get[ServiceB](c)
 }
