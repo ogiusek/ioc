@@ -32,6 +32,35 @@ func BenchmarkGet(b *testing.B) {
 	}
 }
 
+func BenchmarkLazyGet(b *testing.B) {
+	initial := 1
+	c := ioc.NewContainer(
+		func(b ioc.Builder) {
+			ioc.Register(b, func(d ioc.Dic) int { return initial })
+		},
+	)
+
+	b.ResetTimer()
+	for b.Loop() {
+		ioc.Get[ioc.Lazy[int]](c)()
+	}
+}
+
+func BenchmarkLazy(b *testing.B) {
+	initial := 1
+	c := ioc.NewContainer(
+		func(b ioc.Builder) {
+			ioc.Register(b, func(d ioc.Dic) int { return initial })
+		},
+	)
+
+	getter := ioc.Get[ioc.Lazy[int]](c)
+	b.ResetTimer()
+	for b.Loop() {
+		getter()
+	}
+}
+
 func BenchmarkGetServices(b *testing.B) {
 	type Services struct {
 		Service int `inject:"1"`
