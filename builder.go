@@ -6,6 +6,8 @@ import (
 	"sync"
 )
 
+var Registry []Pkg
+
 type serviceID any
 
 type builder struct {
