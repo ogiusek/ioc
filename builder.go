@@ -87,14 +87,12 @@ func (b Builder) build() Dic {
 func Register[Service any](b Builder, creator func(c Dic) Service) {
 	key := typeKey[Service]()
 	if _, ok := b.b.services[key]; ok {
-		var t Service
-		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
+		log.Panicf("registered service already exists '%s'", reflect.TypeFor[Service]().String())
 	}
 
 	lazyKey := typeKey[Lazy[Service]]()
 	if _, ok := b.b.services[lazyKey]; ok {
-		var t Service
-		log.Panicf("registered service already exists '%s'", reflect.TypeOf(t).String())
+		log.Panicf("registered service already exists '%s'", reflect.TypeFor[Service]().String())
 	}
 
 	b.b.services[key] = newService(func(c Dic) any { return creator(c) })
